@@ -1,5 +1,9 @@
 Changes
 =======
+seamsh 0.4.18
+-------------
+* adjust epsilons to domain size
+
 seamsh 0.4.17
 -------------
 * fix

@@ -44,8 +44,7 @@ def _generate_unique_points(x):
     unique_id = _tools.np.full([x.shape[0]], -1, _tools.np.int32)
     bbmin = _tools.np.min(x, axis=0)
     bbmax = _tools.np.max(x, axis=0)
-    eps = _tools.np.linalg.norm(bbmax-bbmin)*1e-12
-    eps = 1e-12
+    eps = _tools.np.linalg.norm(bbmax-bbmin)*1e-8
     cid = 0
     pairs = _tools.np.array(list(tree.query_pairs(eps)))
     if pairs.shape[0] == 0 : pairs = pairs.reshape(-1,2)
@@ -395,7 +394,7 @@ def coarsen_boundaries(domain: Domain, x0: _tools.Tuple[float, float],
     x = _tools.np.copy(x[:, :2])
     # avoid cocircular points
     eps = (_tools.np.max(x, axis=0, keepdims=True) -
-           _tools.np.min(x, axis=0, keepdims=True))*1e-8
+           _tools.np.min(x, axis=0, keepdims=True))*1e-12
     _tools.np.random.seed(0)
     x = x + _tools.np.random.random(x.shape)*eps
     _tools.log("Delaunay mesh of sampled points")
