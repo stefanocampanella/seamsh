@@ -47,26 +47,6 @@ except:
     shapely_available = False
 
 
-class ProgressLog:
-
-    def __init__(self, msg):
-        self._tic = time.time()
-        self._last_msg = ""
-        print(msg)
-        if sys.stdout.isatty():
-            print("")
-
-    def log(self, msg):
-        if sys.stdout.isatty():
-            print("\033[F\033[K", end="")  # Cursor up one line and clear
-            print(msg + " (%.1fs)" % (time.time()-self._tic))
-        self._last_msg = msg
-
-    def end(self):
-        if not sys.stdout.isatty():
-            print(self._last_msg)
-
-
 _transform_cache = {}
 
 

@@ -20,6 +20,8 @@
 
 import logging
 
+import tqdm
+
 from . import _tools
 from .geometry import Domain as _Domain
 from .gmsh import _curve_sample
@@ -47,23 +49,20 @@ class Distance:
         self._projection = domain._projection if projection is None else projection
         logger.info("Create distance field")
         points = []
-        msg = "Sampling features for distance computation"
-        progress = _tools.ProgressLog(msg)
         all_curves_iter = _tools.chain(domain._curves, domain._interior_curves)
 
         def size(x, proj):
             return _tools.np.full([x.shape[0]], sampling)
 
         icurve = 0
-        for curve in all_curves_iter:
+        for curve in tqdm.tqdm(all_curves_iter, desc="Sampling features for distance computation"):
             if (tags is None) or (curve.tag in tags):
                 points.append(_curve_sample(curve, size, self._projection))
                 icurve += 1
-                progress.log("{} features sampled".format(icurve))
         for point in _tools.chain(domain._interior_points):
             if (tags is None) or (point.tag in tags):
                 points.append(point.x)
-        progress.end()
+        logger.info("%d features sampled", icurve)
         points = _tools.np.vstack(points)
         logger.info("Build KDTree with %d points", points.shape[0])
         self._tree = _tools.cKDTree(points)

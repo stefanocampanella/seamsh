@@ -18,10 +18,14 @@
 # along with this program (see COPYING file).  If not,
 # see <http://www.gnu.org/licenses/>.
 
-import gmsh
-from . import geometry as _geometry
-from . import _tools
 import logging
+
+import gmsh
+import tqdm.contrib
+
+from . import _tools
+from . import geometry as _geometry
+
 __all__ = ["mesh", "convert_to_gis", "reproject"]
 
 logger = logging.getLogger(__name__)
@@ -209,14 +213,12 @@ def _mesh_successive(domain: _geometry.Domain,
         curve.mesh_size = mesh_size(curve.points, domain._projection)
 
     # 1D mesh
-    progress = _tools.ProgressLog("Sample curves for mesh size")
-    for icurve, (dim, tag) in enumerate(gmsh.model.getEntities(1)):
+    for icurve, (dim, tag) in tqdm.contrib.tenumerate(gmsh.model.getEntities(1), desc="Sample curves for mesh size"):
         _, xi, size = _curve_sample_gmsh_tag(tag,
                                              lambda x, p: mesh_size(x, p)/2,
                                              domain._projection)
         gmsh.model.mesh.setSizeAtParametricPoints(dim, tag, xi, size*2)
-        progress.log("{} curve sampled".format(icurve+1))
-    progress.end()
+    logger.info("%d curve sampled", icurve+1)
     logger.info("Generate 1D mesh")
     gmsh.model.mesh.generate(1)
     if intermediate_file_name is not None:

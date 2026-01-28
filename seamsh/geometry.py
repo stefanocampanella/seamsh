@@ -20,6 +20,9 @@
 
 import logging
 
+import tqdm
+import tqdm.contrib
+
 from . import _tools
 
 __all__ = ["Domain", "CurveType", "coarsen_boundaries"]
@@ -225,8 +228,6 @@ class Domain:
 
     def _add_shapefile(self, filename, physical_name_field,
                        interior, points, curve_type):
-        progress = _tools.ProgressLog(
-                    "Import features from \"{}\"".format(filename))
         if filename[-5:] == ".gpkg":
             driver = _tools.ogr.GetDriverByName('GPKG')
         else:
@@ -245,16 +246,15 @@ class Domain:
                 raise ValueError("field '"+physical_name_field +
                                  "' not found in shapefile")
         layerproj = layer.GetSpatialRef()
-        for i in layer:
+        for i in tqdm.tqdm(layer, desc=f"Import features from '{filename}'"):
             if i.geometry() is None :
                 continue
             phys = (i.GetField(physfield)
                     if not (physfield is None) else "boundary")
             self._add_geometry(i.geometry(), phys, layerproj, curve_type,
                                interior, points)
-            progress.log("{} features imported".format(count))
             count += 1
-        progress.end()
+        logger.info("%d features imported", count)
 
     def add_interior_points(self, points: _tools.np.ndarray, physical_tag: str,
                             projection: _tools.osr.SpatialReference) -> None:
@@ -367,8 +367,7 @@ def coarsen_boundaries(domain: Domain, x0: _tools.Tuple[float, float],
     def mesh_size_half(x, p):
         return mesh_size(x, p)*0.5
 
-    progress = _tools.ProgressLog("Sampling curves for coarsening")
-    for icurve, curve in enumerate(domain._curves):
+    for icurve, curve in tqdm.contrib.tenumerate(domain._curves, desc="Sampling curves for coarsening"):
         cs = _curve_sample(curve, mesh_size_half, domain._projection)
         sampled.append(cs)
         if curve.tag not in str2tag:
@@ -376,8 +375,7 @@ def coarsen_boundaries(domain: Domain, x0: _tools.Tuple[float, float],
             maxtag += 1
         tags.append(_tools.np.full(cs.shape[0], str2tag[curve.tag],
                                    dtype=_tools.np.int32))
-        progress.log("{} curves sampled".format(icurve+1))
-    progress.end()
+    logger.info("%d curves sampled", icurve+1)
     x = _tools.np.vstack(sampled)
     tags = _tools.np.concatenate(tags)
     x, unique_id, _ = _generate_unique_points(x)
