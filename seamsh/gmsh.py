@@ -23,10 +23,6 @@ from . import geometry as _geometry
 from . import _tools
 __all__ = ["mesh", "convert_to_gis", "reproject"]
 
-if not gmsh.is_initialized():
-    gmsh.initialize()
-    gmsh.option.setNumber("General.Verbosity", 2)
-
 
 def _gmsh_curve_geo(curve_type: _geometry.CurveType, pointsid):
     pts = list(i+1 for i in pointsid)
@@ -296,7 +292,7 @@ def _reproject(input_srs, output_srs):
 
 
 
-def mesh(domain: _geometry.Domain, filename: str,
+def mesh(domain: _geometry.Domain,
          mesh_size: _geometry.MeshSizeCallback,
          version: float = 4.1,
          intermediate_file_name: str = None,
@@ -305,11 +301,11 @@ def mesh(domain: _geometry.Domain, filename: str,
          transfinite_curves: dict = {},
          quad: bool = False
          ) -> None:
-    """ Calls gmsh to generate a mesh from a geometry and a mesh size callback
+    """ Calls gmsh to generate a mesh from a geometry and a mesh size callback, it assumes that the gmsh is initialized
+    and use the current model.
 
     Args:
         domain: the input geometry
-        filename: output mesh file (.msh)
         mesh_size: callbable prescribing the mesh element size
         version: msh file version (typically 2.0 or 4.0)
         intermediate_file_name: if not None, save intermediate meshes to those
@@ -326,7 +322,6 @@ def mesh(domain: _geometry.Domain, filename: str,
             generating a quad-dominant mesh and then splitting all elements (quads and 
             triangles) into quads. So the resulting mesh size is half the prescribed one.
     """
-    gmsh.model.add(str(_tools.uuid.uuid4()))
     _tools.log("Generate mesh", True)
     domain._build_topology()
     _create_gmsh_geometry(domain)
@@ -367,10 +362,7 @@ def mesh(domain: _geometry.Domain, filename: str,
     if output_srs is not None:
         gmsh.model.set_attribute("Projection", ["WKT",output_srs.ExportToWkt()])
 
-    _tools.log("Write \"{}\" (msh version {})".format(filename, version))
     gmsh.option.setNumber("Mesh.MshFileVersion", version)
-    gmsh.write(filename)
-    gmsh.model.remove()
 
 
 def reproject(input_filename : str,
