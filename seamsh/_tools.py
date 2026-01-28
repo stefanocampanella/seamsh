@@ -47,17 +47,12 @@ except:
     shapely_available = False
 
 
-def log(txt, title=False):
-    decorator = " * " if title else ""
-    print(decorator+txt+decorator)
-
-
 class ProgressLog:
 
-    def __init__(self, msg, title=False):
+    def __init__(self, msg):
         self._tic = time.time()
         self._last_msg = ""
-        log(msg, title)
+        print(msg)
         if sys.stdout.isatty():
             print("")
 

@@ -21,8 +21,10 @@
 import gmsh
 from . import geometry as _geometry
 from . import _tools
+import logging
 __all__ = ["mesh", "convert_to_gis", "reproject"]
 
+logger = logging.getLogger(__name__)
 
 def _gmsh_curve_geo(curve_type: _geometry.CurveType, pointsid):
     pts = list(i+1 for i in pointsid)
@@ -96,7 +98,7 @@ def _curve_sample(curve, lc, projection):
 
 
 def _create_gmsh_geometry(domain: _geometry.Domain):
-    _tools.log("Build gmsh model")
+    logger.info("Build gmsh model")
     gmsh.option.setNumber("Mesh.CharacteristicLengthFromPoints", 0)
     gmsh.option.setNumber("Mesh.LcIntegrationPrecision", 1e-5)
     gmsh.option.setNumber("Mesh.CharacteristicLengthFactor", 1)
@@ -144,7 +146,7 @@ def _create_gmsh_geometry(domain: _geometry.Domain):
 def _mesh_bgrid(domain: _geometry.Domain,
                 mesh_size: _geometry.MeshSizeCallback,
                 smoothness: float):
-    _tools.log("Build mesh size field")
+    logger.info("Build mesh size field")
     np = _tools.np
     x0 = np.min(domain._points, axis=0)
     x1 = np.max(domain._points, axis=0)
@@ -196,7 +198,7 @@ def _mesh_bgrid(domain: _geometry.Domain,
     gmsh.option.setNumber("Mesh.CharacteristicLengthFromCurvature", 0)
     gmsh.option.setNumber("Mesh.CharacteristicLengthExtendFromBoundary", 0)
     gmsh.option.setNumber("Mesh.CharacteristicLengthFromParametricPoints", 0)
-    _tools.log("Mesh with gmsh")
+    logger.info("Mesh with gmsh")
     gmsh.model.mesh.generate(2)
 
 
@@ -215,7 +217,7 @@ def _mesh_successive(domain: _geometry.Domain,
         gmsh.model.mesh.setSizeAtParametricPoints(dim, tag, xi, size*2)
         progress.log("{} curve sampled".format(icurve+1))
     progress.end()
-    _tools.log("Generate 1D mesh")
+    logger.info("Generate 1D mesh")
     gmsh.model.mesh.generate(1)
     if intermediate_file_name is not None:
         if intermediate_file_name == "-":
@@ -223,7 +225,7 @@ def _mesh_successive(domain: _geometry.Domain,
         else:
             gmsh.write(intermediate_file_name+"_1d.msh")
     # 2D mesh ##
-    _tools.log("Generate initial 2D mesh")
+    logger.info("Generate initial 2D mesh")
     _, x, u = gmsh.model.mesh.getNodes()
     x = x.reshape([-1, 3])
     domain_size = _tools.np.max(x, axis=0)-_tools.np.min(x, axis=0)
@@ -238,7 +240,7 @@ def _mesh_successive(domain: _geometry.Domain,
     gmsh.model.mesh.field.setAsBackgroundMesh(bg_field)
     nadapt = 3
     for i in range(nadapt):
-        _tools.log("Generate refined 2D mesh (pass {}/{})".format(i+1, nadapt))
+        logger.info("Generate refined 2D mesh (pass %d/%d)",i+1, nadapt)
         node_tags, node_x, _ = gmsh.model.mesh.getNodes(-1, -1)
         node_x = node_x.reshape([-1, 3])
         nodes_map = dict({tag: i for i, tag in enumerate(node_tags)})
@@ -322,7 +324,7 @@ def mesh(domain: _geometry.Domain,
             generating a quad-dominant mesh and then splitting all elements (quads and 
             triangles) into quads. So the resulting mesh size is half the prescribed one.
     """
-    _tools.log("Generate mesh", True)
+    logger.info("Generate mesh")
     domain._build_topology()
     _create_gmsh_geometry(domain)
     for dim, tag in gmsh.model.get_physical_groups(1):

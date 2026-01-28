@@ -18,10 +18,13 @@
 # along with this program (see COPYING file).  If not,
 # see <http://www.gnu.org/licenses/>.
 
+import logging
+
 from . import _tools
 from .geometry import Domain as _Domain
 from .gmsh import _curve_sample
 
+logger = logging.getLogger(__name__)
 
 class Distance:
     """Callable evaluating the distance to a set of discretized curves.
@@ -42,7 +45,7 @@ class Distance:
                 if None, the domain projection is used.
         """
         self._projection = domain._projection if projection is None else projection
-        _tools.log("Create distance field", True)
+        logger.info("Create distance field")
         points = []
         msg = "Sampling features for distance computation"
         progress = _tools.ProgressLog(msg)
@@ -62,7 +65,7 @@ class Distance:
                 points.append(point.x)
         progress.end()
         points = _tools.np.vstack(points)
-        _tools.log("Build KDTree with {} points".format(points.shape[0]))
+        logger.info("Build KDTree with %d points", points.shape[0])
         self._tree = _tools.cKDTree(points)
 
     def __call__(self, x: _tools.np.ndarray,
@@ -92,8 +95,7 @@ class Raster:
         Args:
             filename: A geotiff file or any other raster supported by gdal.
         """
-        msg = "Create field from raster file \"{}\"".format(filename)
-        _tools.log(msg, True)
+        logger.info("Create field from raster file \"%s\"", filename)
         src_ds = _tools.gdal.Open(filename)
         self._geo_matrix = src_ds.GetGeoTransform()
         self._data = src_ds.GetRasterBand(1).ReadAsArray()
@@ -103,8 +105,7 @@ class Raster:
             order = _tools.osr.OAMS_TRADITIONAL_GIS_ORDER
             self._projection.SetAxisMappingStrategy(order)
         if self._projection.IsSame(_tools.osr.SpatialReference()):
-            msg = " !!! Raster used has no spatial reference !!!\n !!! Be sure to define one manually !!!\n"
-            _tools.log(msg)
+            logger.warning("Raster used has no spatial reference. Be sure to define one manually.")
 
     def __call__(self, x: _tools.np.ndarray,
                  projection: _tools.osr.SpatialReference
@@ -142,7 +143,7 @@ class Inpoly:
         """
         if not _tools.shapely_available:
             raise ValueError("The shapely python module is required to use Inpoly fields.")
-        _tools.log("Initialisation Inpoly", True)
+        logger.info("Initialisation Inpoly")
         self._projection = domain._projection
 
         domain._build_topology()

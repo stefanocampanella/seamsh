@@ -18,6 +18,8 @@
 # along with this program (see COPYING file).  If not,
 # see <http://www.gnu.org/licenses/>.
 
+import logging
+
 from . import _tools
 
 __all__ = ["Domain", "CurveType", "coarsen_boundaries"]
@@ -26,6 +28,7 @@ MeshSizeCallback = _tools.Callable[[_tools.np.ndarray,
                                     _tools.osr.SpatialReference],
                                    _tools.np.ndarray]
 
+logger = logging.getLogger(__name__)
 
 class CurveType(_tools.Enum):
     """ Determine how curves control points are interpolated. """
@@ -103,7 +106,7 @@ class Domain:
         self._curves = []
 
     def _build_topology(self):
-        _tools.log("Build topology")
+        logger.info("Build topology")
         curvesiter = _tools.chain(self._curves, self._interior_curves)
         allpoints = _tools.np.row_stack(list(_tools.chain(
             (_tools.project_points(curve.points, curve.projection,
@@ -223,7 +226,7 @@ class Domain:
     def _add_shapefile(self, filename, physical_name_field,
                        interior, points, curve_type):
         progress = _tools.ProgressLog(
-                    "Import features from \"{}\"".format(filename), True)
+                    "Import features from \"{}\"".format(filename))
         if filename[-5:] == ".gpkg":
             driver = _tools.ogr.GetDriverByName('GPKG')
         else:
@@ -353,7 +356,7 @@ def coarsen_boundaries(domain: Domain, x0: _tools.Tuple[float, float],
         mesh_size: a function returning the desired mesh element size for given
             coordinates
     """
-    _tools.log("Coarsen boundaries", True)
+    logger.info("Coarsen boundaries")
     x0 = _tools.project_points(_tools.np.array([x0]), x0_projection,
                                domain._projection)[0]
     sampled = []
@@ -397,9 +400,9 @@ def coarsen_boundaries(domain: Domain, x0: _tools.Tuple[float, float],
            _tools.np.min(x, axis=0, keepdims=True))*1e-12
     _tools.np.random.seed(0)
     x = x + _tools.np.random.random(x.shape)*eps
-    _tools.log("Delaunay mesh of sampled points")
+    logger.info("Delaunay mesh of sampled points")
     tri = _tools.Delaunay(x)
-    _tools.log("Extract boundaries")
+    logger.info("Extract boundaries")
     first = tri.find_simplex(x0)
     if (first == -1):
         raise(ValueError("First point outside domain"))
