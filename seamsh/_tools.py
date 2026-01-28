@@ -21,7 +21,6 @@
 import sys
 import uuid
 import struct
-import atexit
 import os
 import time
 from itertools import chain

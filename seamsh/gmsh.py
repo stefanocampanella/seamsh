@@ -213,7 +213,8 @@ def _mesh_successive(domain: _geometry.Domain,
         curve.mesh_size = mesh_size(curve.points, domain._projection)
 
     # 1D mesh
-    for icurve, (dim, tag) in tqdm.contrib.tenumerate(gmsh.model.getEntities(1), desc="Sample curves for mesh size"):
+    for icurve, (dim, tag) in tqdm.contrib.tenumerate(gmsh.model.getEntities(1),
+                                                      desc="(seamsh) Sample curves for mesh size"):
         _, xi, size = _curve_sample_gmsh_tag(tag,
                                              lambda x, p: mesh_size(x, p)/2,
                                              domain._projection)
@@ -640,7 +641,3 @@ def merge_meshes(filename_orig:str, filename_dest:str, filename_out:str, seamlin
     gmsh.write(filename_out)
     gmsh.model.set_current(model_dest)
     gmsh.model.remove()
-
-@_tools.atexit.register
-def _finalize():
-    gmsh.finalize()

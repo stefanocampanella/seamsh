@@ -246,7 +246,7 @@ class Domain:
                 raise ValueError("field '"+physical_name_field +
                                  "' not found in shapefile")
         layerproj = layer.GetSpatialRef()
-        for i in tqdm.tqdm(layer, desc=f"Import features from '{filename}'"):
+        for i in tqdm.tqdm(layer, desc=f"(seamsh) Import features from '{filename}'"):
             if i.geometry() is None :
                 continue
             phys = (i.GetField(physfield)
@@ -367,7 +367,7 @@ def coarsen_boundaries(domain: Domain, x0: _tools.Tuple[float, float],
     def mesh_size_half(x, p):
         return mesh_size(x, p)*0.5
 
-    for icurve, curve in tqdm.contrib.tenumerate(domain._curves, desc="Sampling curves for coarsening"):
+    for icurve, curve in tqdm.contrib.tenumerate(domain._curves, desc="(seamsh) Sampling curves for coarsening"):
         cs = _curve_sample(curve, mesh_size_half, domain._projection)
         sampled.append(cs)
         if curve.tag not in str2tag:

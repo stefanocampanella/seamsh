@@ -55,7 +55,7 @@ class Distance:
             return _tools.np.full([x.shape[0]], sampling)
 
         icurve = 0
-        for curve in tqdm.tqdm(all_curves_iter, desc="Sampling features for distance computation"):
+        for curve in tqdm.tqdm(all_curves_iter, desc="(seamsh) Sampling features for distance computation"):
             if (tags is None) or (curve.tag in tags):
                 points.append(_curve_sample(curve, size, self._projection))
                 icurve += 1
