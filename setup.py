@@ -18,12 +18,11 @@
 # along with this program (see COPYING file).  If not, 
 # see <http://www.gnu.org/licenses/>.
 
+import os
+
 from setuptools import setup, Extension
 from setuptools.command.build_ext import build_ext as _build_ext
 from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
-import pkg_resources
-import sys
-import os
 
 version = "0.1"
 commit_tag = os.environ.get("CI_COMMIT_TAG")
@@ -74,6 +73,6 @@ setup(
         "Programming Language :: Python",
         "Topic :: Scientific/Engineering"
         ],
-    install_requires=["scipy","numpy","gdal>=3.1.0","gmsh"],
+    install_requires=["scipy","numpy","gdal>=3.1.0","gmsh","tqdm"],
     python_requires='>=3.6'
 )
