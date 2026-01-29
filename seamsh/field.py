@@ -89,13 +89,11 @@ class Distance:
 class Raster:
     """Callable to evaluate a raster field loaded from a file."""
 
-    def __init__(self, filename: str):
+    def __init__(self, src_ds: _tools.gdal.Dataset):
         """
         Args:
-            filename: A geotiff file or any other raster supported by gdal.
+            src_ds: GDAL dataset containing the raster field.
         """
-        logger.info("Create field from raster file \"%s\"", filename)
-        src_ds = _tools.gdal.Open(filename)
         self._geo_matrix = src_ds.GetGeoTransform()
         self._data = src_ds.GetRasterBand(1).ReadAsArray()
         self._projection = _tools.osr.SpatialReference()
