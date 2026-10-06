@@ -111,7 +111,7 @@ class Domain:
     def _build_topology(self):
         logger.info("Build topology")
         curvesiter = _tools.chain(self._curves, self._interior_curves)
-        allpoints = _tools.np.row_stack(list(_tools.chain(
+        allpoints = _tools.np.vstack(list(_tools.chain(
             (_tools.project_points(curve.points, curve.projection,
                                    self._projection)
              for curve in curvesiter),
@@ -203,7 +203,7 @@ class Domain:
         self._interior_curves = split_curves(self._interior_curves, breakpts)
         loopbboxarea = _tools.np.zeros([len(self._curveloops)])
         for i, l in enumerate(self._curveloops):
-            lpts = _tools.np.row_stack([self._curves[j].points for j, o in l])
+            lpts = _tools.np.vstack([self._curves[j].points for j, o in l])
             bbox = _tools.np.max(lpts, axis=0)-_tools.np.min(lpts, axis=0)
             loopbboxarea[i] = bbox[0]*bbox[1]
         self._curveloops.insert(

@@ -61,7 +61,7 @@ def _curve_sample_gmsh_tag(tag, lc, projection):
         xi = _tools.np.hstack([xi, exi])
         s = _tools.np.argsort(xi)
         xi = xi[s]
-        x = _tools.np.row_stack([x, ex])[s, :]
+        x = _tools.np.vstack([x, ex])[s, :]
         size = _tools.np.hstack([size, esize])[s]
     return x[:, :2], xi, size
 
