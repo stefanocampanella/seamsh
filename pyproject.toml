@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "seamsh"
+# The version and the C library (seamsh/libseamsh.so) are defined in setup.py.
+dynamic = ["version"]
+description = "Ocean mesh generation"
+readme = "README.rst"
+authors = [{ name = "Jonathan Lambrechts", email = "jonathan.lambrechts@uclouvain.be" }]
+requires-python = ">=3.9"
+dependencies = ["numpy", "scipy", "gdal>=3.1.0", "gmsh", "tqdm"]
+classifiers = [
+    "Environment :: Console",
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS :: MacOS X",
+    "Programming Language :: C",
+    "Programming Language :: Python",
+    "Topic :: Scientific/Engineering",
+]
+
+[project.optional-dependencies]
+# field.Inpoly
+shapely = ["shapely"]
+# gmsh.convert_to_ugrid_mesh_file
+ugrid = ["xarray", "netcdf4"]
+dev = ["pytest", "ruff", "pre-commit", "shapely"]
+
+[project.urls]
+Homepage = "https://git.immc.ucl.ac.be/jlambrechts/seamsh"
+Documentation = "http://jlambrechts.git-page.immc.ucl.ac.be/seamsh"
+
+[tool.setuptools]
+packages = ["seamsh"]
+license-files = ["COPYING.txt", "AUTHORS.txt", "LICENSE.txt"]
+
+[tool.setuptools.package-data]
+seamsh = ["*.so"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Import seamsh from the source tree (needs `python setup.py build_ext --inplace` first).
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+extend-exclude = ["refactoring-kit", "doc/conf.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "C4", "SIM"]
+
+[tool.codespell]
+skip = "seamshlib/polymesh.c,seamshlib/polymesh.h,seamshlib/robustPredicates.c,seamshlib/robustPredicates.h,seamshlib/qsort.h,seamshlib/vector.h,COPYING.txt,refactoring-kit,tests/data,build,*.msh"

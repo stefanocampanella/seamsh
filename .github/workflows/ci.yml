@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [develop, master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+      # GDAL and gmsh (with its Python module) come from conda-forge: pip has no GDAL wheels.
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: seamsh
+          create-args: >-
+            python=3.12
+            c-compiler
+            gdal
+            python-gmsh
+            numpy
+            scipy
+            tqdm
+            shapely
+            xarray
+            netcdf4
+            setuptools
+            pytest
+            pre-commit
+          cache-environment: true
+      - name: Build the C library
+        run: python setup.py build_ext --inplace
+      - name: Tests
+        run: python -m pytest
+      - name: Hooks
+        run: pre-commit run --all-files --show-diff-on-failure
