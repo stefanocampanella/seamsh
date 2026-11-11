@@ -107,3 +107,22 @@ def test_ocean_mesh(coarse, model):
     lengths = np.concatenate([np.linalg.norm(p - q, axis=1) for p, q in ((a, b), (b, c), (c, a))])
     assert np.median(lengths) == pytest.approx(300e3, rel=0.15)
     assert osr.SpatialReference(gmsh.model.getAttribute("Projection")[1]).IsSame(cartesian)
+
+
+def test_seeded_basins(model):
+    """With points in the Mediterranean, the Black Sea and the Red Sea, these basins, cut off from
+    the ocean by the 100 km coastline, are kept and meshed as separate pieces."""
+    basins = {"Mediterranean Sea": (35.0, 18.0), "Black Sea": (43.5, 34.0), "Red Sea": (20.0, 38.5)}
+    seeds = [(0.0, 0.0)] + [tuple(to_stereographic(lat, lon)) for lat, lon in basins.values()]
+    domain = Domain(STEREOGRAPHIC)
+    domain.add_boundary_curves_shp(str(NE_110M), "featurecla", CurveType.BSPLINE)
+    coarse = coarsen_boundaries(domain, seeds, STEREOGRAPHIC, UniformOnEarth(100e3))
+    curves = [c.points for c in coarse._curves]
+    points = np.array([to_stereographic(lat, lon) for _, lat, lon, _ in PROBES])
+    inside = {p[0]: bool(i) for p, i in zip(PROBES, inside_curves(points, curves))}
+    expected = {p[0]: p[3] or p[0] in basins for p in PROBES}
+    assert inside == expected
+    seamsh.gmsh.mesh(coarse, UniformOnEarth(300e3))
+    mesh = current_mesh()
+    assert n_components(mesh) == 4
+    assert len(gmsh.model.getEntities(2)) == 4

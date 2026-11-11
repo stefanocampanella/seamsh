@@ -221,3 +221,58 @@ def test_size_callback_scaling_between_projections():
     np.testing.assert_allclose(degrees, 1000.0 / scale(lonlat, (3.0, 45.0), 1e-5), rtol=1e-4)
     metres = seamsh.gmsh._lcproj(size, utm32)(np.array([[2e5, 5e6]]), utm())
     np.testing.assert_allclose(metres, 1000.0 / scale(utm32, (2e5, 5e6), 1.0), rtol=1e-4)
+
+
+def test_one_surface_per_region(model):
+    """Two separate squares are two gmsh surfaces, both in the physical group "domain"."""
+    seamsh.gmsh.mesh(two_squares(), uniform(5e3))
+    assert len(gmsh.model.getEntities(2)) == 2
+    (group,) = gmsh.model.getPhysicalGroups(2)
+    assert gmsh.model.getPhysicalName(*group) == "domain"
+    assert len(gmsh.model.getEntitiesForPhysicalGroup(*group)) == 2
+
+
+def test_lake_on_an_island_is_meshed(model):
+    """Nested boundaries: the sea around an island, and the lake on the island, are two regions;
+    the island between them is not meshed."""
+    from domains import rectangle
+
+    from seamsh.geometry import Domain
+
+    srs = utm()
+    domain = Domain(srs)
+    domain.add_boundary_curve(rectangle(0, 0, 100e3, 100e3, 5e3), "sea", srs)
+    domain.add_boundary_curve(rectangle(20e3, 20e3, 80e3, 80e3, 5e3), "island", srs)
+    domain.add_boundary_curve(rectangle(35e3, 35e3, 65e3, 65e3, 5e3), "lake", srs)
+    domain.add_interior_points([[50e3, 50e3]], "gauge", srs)
+    seamsh.gmsh.mesh(domain, uniform(5e3))
+    mesh = current_mesh()
+    assert n_components(mesh) == 2
+    np.testing.assert_allclose(signed_areas(mesh).sum(), 100e3**2 - 60e3**2 + 30e3**2, rtol=0.02)
+    centroids = mesh["x"][mesh["triangles"], :2].mean(axis=1)
+    on_island = (np.abs(centroids - 50e3) < 29e3).all(axis=1) & ~(
+        (np.abs(centroids - 50e3) < 16e3).all(axis=1)
+    )
+    assert not on_island.any()
+    # The forced point, in the lake, is a node of the mesh of the lake.
+    used = mesh["x"][np.unique(mesh["triangles"]), :2]
+    assert np.linalg.norm(used - [50e3, 50e3], axis=1).min() < 1.0
+
+
+def test_coarsened_basins_are_meshed_separately(model):
+    """The whole chain for basins joined by a channel too narrow for the coarsening: one seed per
+    basin, and a mesh in two pieces with no element in the channel."""
+    from domains import two_basins
+
+    from seamsh.geometry import coarsen_boundaries
+
+    seeds = [(20e3, 20e3), (80e3, 20e3)]
+    coarse = coarsen_boundaries(two_basins(half_width=1e3), seeds, utm(), uniform(5e3))
+    seamsh.gmsh.mesh(coarse, uniform(5e3))
+    mesh = current_mesh()
+    assert n_components(mesh) == 2
+    assert mesh["groups"] == ["coast", "domain"]
+    centroids = mesh["x"][mesh["triangles"], :2].mean(axis=1)
+    assert not ((centroids[:, 0] > 42e3) & (centroids[:, 0] < 58e3)).any()
+    assert (centroids[:, 0] < 40e3).sum() > 50 and (centroids[:, 0] > 60e3).sum() > 50
+    assert (signed_areas(mesh) > 0).all()

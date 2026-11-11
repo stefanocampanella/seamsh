@@ -172,9 +172,9 @@ def _curve_sample(curve, lc, projection: osr.SpatialReference) -> np.ndarray:
 
 def _create_gmsh_geometry(domain: _geometry.Domain) -> None:
     """Builds the geometry of `domain` (after `_build_topology`) in the current gmsh model: its
-    points, curves, one plane surface bounded by the curve loops, the interior curves and points
-    embedded in it, and the physical groups: one per curve or point tag, and "domain" for the
-    surface."""
+    points, curves, one plane surface per region of the domain (bounded by the curve loops of the
+    region), the interior curves and points embedded in the surface that holds them, and the
+    physical groups: one per curve or point tag, and "domain" for the surfaces."""
     logger.info("Build gmsh model")
     gmsh.option.setNumber("Mesh.CharacteristicLengthFromPoints", 0)
     gmsh.option.setNumber("Mesh.LcIntegrationPrecision", 1e-5)
@@ -195,26 +195,43 @@ def _create_gmsh_geometry(domain: _geometry.Domain) -> None:
             # gmsh takes a curve backwards when its tag is negative.
             loop_curves.extend(tags if forward else [-t for t in reversed(tags)])
         loop_tags.append(gmsh.model.geo.addCurveLoop(loop_curves))
-    # The first loop is the outer boundary, the others are holes.
-    surface = gmsh.model.geo.addPlaneSurface(loop_tags)
-    embedded = []
+    # One surface per region; in each, the first loop is the outer boundary, the others are holes.
+    surfaces = [
+        gmsh.model.geo.addPlaneSurface([loop_tags[i] for i in region]) for region in domain._regions
+    ]
+
+    def region_of(x, what):
+        region = domain._region_of(x)
+        if region is None:
+            logger.warning("%s is outside the domain: embedded in its first region", what)
+            region = 0
+        return region
+
+    embedded_curves = [[] for _ in surfaces]
     for curve in domain._interior_curves:
         tags = _gmsh_curve_geo(curve.curve_type, curve.pointsid)
-        embedded.extend(tags)
         curve_groups.setdefault(curve.tag, []).extend(tags)
+        # The region of the middle of the curve (its ends may be on the boundary).
+        middle = len(curve.pointsid) // 2
+        x = domain._points[curve.pointsid[middle - 1 : middle + 1]].mean(axis=0)
+        embedded_curves[region_of(x, f"An interior curve tagged '{curve.tag}'")].extend(tags)
     point_groups = {}  # physical tag -> gmsh points
+    embedded_points = [[] for _ in surfaces]
     for point in domain._interior_points:
         point_groups.setdefault(point.tag, []).append(point.pointid + 1)
+        region = region_of(domain._points[point.pointid], f"A point tagged '{point.tag}'")
+        embedded_points[region].append(point.pointid + 1)
     gmsh.model.geo.synchronize()
-    gmsh.model.mesh.embed(1, embedded, 2, surface)
-    gmsh.model.mesh.embed(0, [p.pointid + 1 for p in domain._interior_points], 2, surface)
+    for surface, curves, points in zip(surfaces, embedded_curves, embedded_points):
+        gmsh.model.mesh.embed(1, curves, 2, surface)
+        gmsh.model.mesh.embed(0, points, 2, surface)
     for name, tags in curve_groups.items():
         tag = gmsh.model.addPhysicalGroup(1, tags)
         gmsh.model.setPhysicalName(1, tag, name)
     for name, tags in point_groups.items():
         tag = gmsh.model.addPhysicalGroup(0, tags)
         gmsh.model.setPhysicalName(0, tag, name)
-    tag = gmsh.model.addPhysicalGroup(2, [surface])
+    tag = gmsh.model.addPhysicalGroup(2, surfaces)
     gmsh.model.setPhysicalName(2, tag, "domain")
 
 
@@ -435,7 +452,9 @@ def mesh(
     gmsh is initialized and use the current model.
 
     The mesh is left in the current gmsh model, in the coordinate system `output_srs` (stored as
-    WKT in the model attribute "Projection"); write it with `gmsh.write`. Boundary and interior
+    WKT in the model attribute "Projection"); write it with `gmsh.write`. A domain made of several
+    regions that do not touch (e.g. from `coarsen_boundaries` with several points) gives a mesh in
+    as many pieces. Boundary and interior
     curves, and forced points, are in physical groups named by their physical tags, the surface in
     the physical group "domain". Curves that end up in no element of the surface (the outlines of
     islands much smaller than the mesh size) are left out of their physical group, hence of the

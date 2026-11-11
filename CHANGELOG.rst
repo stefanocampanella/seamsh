@@ -2,6 +2,7 @@ Changes
 =======
 seamsh 0.5.0
 ------------
+* disconnected domains: coarsen_boundaries takes several points (x0 can be a sequence of points) and keeps the basin around each one, e.g. a sea behind a strait narrower than the mesh size; mesh builds one surface per region of the domain (regions are found from the nesting of the boundary loops, so a lake on an island is meshed too) and embeds interior curves and points in the region that holds them
 * coarsen_boundaries no longer hangs on boundaries made of straight lines, keeps both tags of points shared by two curves and leaves numpy's global random state alone
 * errors of the C library are raised as Python exceptions instead of ending the process
 * outlines of islands smaller than the mesh size are no longer written to the mesh file (they were boundary elements on nodes that belong to no triangle)

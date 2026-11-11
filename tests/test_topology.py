@@ -93,3 +93,39 @@ def test_open_boundary_is_an_invalid_topology():
     domain.add_boundary_curve(polygon([(0, 0), (10e3, 0), (10e3, 10e3)], 5e3)[:-1], "coast", srs)
     with pytest.raises(ValueError, match="Invalid topology"):
         domain._build_topology()
+
+
+def test_loops_are_sorted_into_regions_by_nesting():
+    """Loops inside an even number of loops bound regions, the others are holes of the smallest
+    loop around them: here a sea (0) with an island (1) that has a lake (2) with an islet (3), and
+    a separate pond (4)."""
+    from seamsh.geometry import _nest_loops
+
+    loops = [
+        rectangle(0, 0, 100, 100, 10),
+        rectangle(20, 20, 80, 80, 10),
+        rectangle(30, 30, 70, 70, 10),
+        rectangle(45, 45, 55, 55, 5),
+        rectangle(200, 0, 250, 50, 10),
+    ]
+    regions, containers = _nest_loops(loops)
+    assert regions == [[0, 1], [2, 3], [4]]
+    assert [sorted(c) for c in containers] == [[], [0], [0, 1], [0, 1, 2], []]
+    # The order of the loops does not matter.
+    regions, _ = _nest_loops(loops[::-1])
+    assert regions == [[0], [2, 1], [4, 3]]
+
+
+def test_region_of_a_point():
+    """Points are located in the region that holds them; land and the outside are in none."""
+    srs = utm()
+    domain = Domain(srs)
+    domain.add_boundary_curve(rectangle(0, 0, 100e3, 100e3, 10e3), "sea", srs)
+    domain.add_boundary_curve(rectangle(20e3, 20e3, 80e3, 80e3, 10e3), "island", srs)
+    domain.add_boundary_curve(rectangle(30e3, 30e3, 70e3, 70e3, 10e3), "lake", srs)
+    domain._build_topology()
+    assert domain._regions == [[0, 1], [2]]
+    assert domain._region_of((10e3, 10e3)) == 0
+    assert domain._region_of((50e3, 50e3)) == 1
+    assert domain._region_of((25e3, 50e3)) is None
+    assert domain._region_of((150e3, 50e3)) is None

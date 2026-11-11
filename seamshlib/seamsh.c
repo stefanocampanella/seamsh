@@ -25,11 +25,12 @@
  *
  * Input: points sampled on the boundary curves of a domain (about two per target size), each with
  * the tags of its curves and the target size there, a Delaunay triangulation of these points, and
- * a "seed" triangle known to be in the water. Output: the boundary of the water reachable from the
- * seed, as closed loops of points about one target size apart, cut into tagged curves.
+ * "seed" triangles known to be in the water. Output: the boundary of the water reachable from the
+ * seeds, as closed loops of points about one target size apart, cut into tagged curves. Seeds in
+ * waters that are not connected (at this resolution) give a domain made of several regions.
  *
  * Steps (gen_boundaries_from_points):
- *  1. color_triangles: flood fill from the seed triangle. The fill goes from a triangle to its
+ *  1. color_triangles: flood fill from the seed triangles. The fill goes from a triangle to its
  *     neighbour only through an edge longer than the target size. Two points on opposite shores of
  *     a channel narrower than the size are joined by a shorter edge, so the fill does not enter
  *     such a channel, and consecutive samples of one curve are closer than the size, so it does not
@@ -682,32 +683,37 @@ static void orient_triangles(const double *x, int n_tri, int *tri, int *neigh) {
   owned_free(visited);
 }
 
-/* Step 1: flood fill from triangle `first` through the edges longer than the smaller target size
+/* Step 1: flood fill from the seed triangles through the edges longer than the smaller target size
  * (`length`) of their two points. Returns the color of each triangle: 1 if reached, else 0. */
-static int *color_triangles(const double *x, int n_tri, const int *tri, const int *neigh, int first,
-                            const double *length) {
+static int *color_triangles(const double *x, int n_tri, const int *tri, const int *neigh,
+                            int n_seeds, const int *seeds, const double *length) {
   int *tri_color = owned_malloc(sizeof(int) * n_tri);
   for (int i = 0; i < n_tri; ++i) {
     tri_color[i] = 0;
   }
   int *stack = owned_malloc(sizeof(int) * n_tri);
-  int stack_p = 0;
-  stack[0] = first;
-  tri_color[first] = 1;
-  while (stack_p >= 0) {
-    int c = stack[stack_p--];
-    for (int j = 0; j < 3; ++j) {
-      int n = neigh[c * 3 + j];
-      if (n >= 0 && !tri_color[n]) {
-        int i0 = tri[c * 3 + j];
-        int i1 = tri[c * 3 + (j + 1) % 3];
-        const double *p0 = x + 2 * i0;
-        const double *p1 = x + 2 * i1;
-        double d2 = (p1[0] - p0[0]) * (p1[0] - p0[0]) + (p1[1] - p0[1]) * (p1[1] - p0[1]);
-        double lmin = fmin(length[i0], length[i1]);
-        if (d2 > lmin * lmin) {
-          tri_color[n] = 1;
-          stack[++stack_p] = n;
+  for (int s = 0; s < n_seeds; ++s) {
+    /* A seed in a region that an earlier seed has filled adds nothing. */
+    if (tri_color[seeds[s]])
+      continue;
+    int stack_p = 0;
+    stack[0] = seeds[s];
+    tri_color[seeds[s]] = 1;
+    while (stack_p >= 0) {
+      int c = stack[stack_p--];
+      for (int j = 0; j < 3; ++j) {
+        int n = neigh[c * 3 + j];
+        if (n >= 0 && !tri_color[n]) {
+          int i0 = tri[c * 3 + j];
+          int i1 = tri[c * 3 + (j + 1) % 3];
+          const double *p0 = x + 2 * i0;
+          const double *p1 = x + 2 * i1;
+          double d2 = (p1[0] - p0[0]) * (p1[0] - p0[0]) + (p1[1] - p0[1]) * (p1[1] - p0[1]);
+          double lmin = fmin(length[i0], length[i1]);
+          if (d2 > lmin * lmin) {
+            tri_color[n] = 1;
+            stack[++stack_p] = n;
+          }
         }
       }
     }
@@ -772,20 +778,20 @@ static void optimize_mesh(double *x, double *length, int n_points, int n_tri, in
 }
 
 /*
- * Coarsens the boundary of the domain that holds triangle `first` (see the top of this file).
+ * Coarsens the boundary of the domain that holds the seed triangles (see the top of this file).
  *
  * n_points, x:    the sampled boundary points (2 coordinates each); modified.
  * tag:            the tag lists of the points (see merge_tag_list); modified.
  * n_tri, tri:     their Delaunay triangulation (3 point indices each); modified.
- * first:          a triangle inside the domain.
+ * n_seeds, seeds: triangles inside the domain, at least one.
  * mesh_size:      the target size at each point; modified.
  * points, lines:  the result (see extract_boundaries), allocated here: the caller frees both with
  *                 libcfree.
  * Returns SEAMSH_OK, or an error code, in which case there is no result (NULL pointers).
  */
-int gen_boundaries_from_points(int n_points, double *x, int *tag, int n_tri, int *tri, int first,
-                               double *mesh_size, double **points, int *n_out_points, int **lines,
-                               int *n_lines) {
+int gen_boundaries_from_points(int n_points, double *x, int *tag, int n_tri, int *tri, int n_seeds,
+                               const int *seeds, double *mesh_size, double **points,
+                               int *n_out_points, int **lines, int *n_lines) {
   *points = NULL;
   *lines = NULL;
   *n_out_points = 0;
@@ -801,11 +807,15 @@ int gen_boundaries_from_points(int n_points, double *x, int *tag, int n_tri, int
     *n_lines = 0;
     return error;
   }
-  if (first < 0 || first >= n_tri)
+  if (n_seeds < 1)
     fail(SEAMSH_BAD_TRIANGULATION);
+  for (int s = 0; s < n_seeds; ++s) {
+    if (seeds[s] < 0 || seeds[s] >= n_tri)
+      fail(SEAMSH_BAD_TRIANGULATION);
+  }
   int *neigh = build_neighbours(n_tri, tri);
   orient_triangles(x, n_tri, tri, neigh);
-  int *tri_color = color_triangles(x, n_tri, tri, neigh, first, mesh_size);
+  int *tri_color = color_triangles(x, n_tri, tri, neigh, n_seeds, seeds, mesh_size);
   optimize_mesh(x, mesh_size, n_points, n_tri, tri, tri_color, neigh, tag);
   extract_boundaries(x, mesh_size, tag, n_tri, tri, tri_color, points, n_out_points, lines,
                      n_lines);

@@ -149,3 +149,33 @@ def test_coarsening_is_deterministic(model):
     ]
     for a, b in zip(runs[0]._curves, runs[1]._curves):
         np.testing.assert_array_equal(a.points, b.points)
+
+
+def test_several_seeds_keep_basins_behind_narrow_channels(model):
+    """With a point in each basin, both are kept, as two closed boundaries that do not touch: the
+    channel between them, narrower than the coarsening size, stays closed."""
+    seeds = [(20e3, 20e3), (80e3, 20e3)]
+    coarse = coarsen_boundaries(two_basins(half_width=1e3), seeds, utm(), uniform(5e3))
+    assert len(coarse._curves) == 2
+    spans = sorted((bounds(c.points)[0][0], bounds(c.points)[1][0]) for c in coarse._curves)
+    assert spans[0][0] > -1e3 and spans[0][1] < 45e3
+    assert spans[1][0] > 55e3 and spans[1][1] < 101e3
+    for curve in coarse._curves:
+        np.testing.assert_allclose(curve.points[0], curve.points[-1])
+
+
+def test_seeds_in_the_same_region_are_the_same_as_one(model):
+    """Extra points in a region already reached change nothing."""
+    one = coarsen_boundaries(square_with_island(), (10e3, 10e3), utm(), uniform(10e3))
+    seeds = np.array([(10e3, 10e3), (90e3, 90e3), (10e3, 90e3)])
+    three = coarsen_boundaries(square_with_island(), seeds, utm(), uniform(10e3))
+    assert len(one._curves) == len(three._curves)
+    for a, b in zip(one._curves, three._curves):
+        np.testing.assert_array_equal(a.points, b.points)
+
+
+def test_the_seed_outside_is_named(model):
+    """The error tells which of the points is outside."""
+    seeds = [(20e3, 20e3), (-50e3, 20e3)]
+    with pytest.raises(ValueError, match=r"\(-50000\.0, 20000\.0\).*outside"):
+        coarsen_boundaries(two_basins(), seeds, utm(), uniform(5e3))

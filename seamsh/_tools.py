@@ -69,6 +69,7 @@ lib.gen_boundaries_from_points.argtypes = [
     ctypes.c_void_p,
     ctypes.c_int,
     ctypes.c_void_p,
+    ctypes.c_void_p,
     ctypes.POINTER(ctypes.POINTER(ctypes.c_double)),
     ctypes.POINTER(ctypes.c_int),
     ctypes.POINTER(ctypes.POINTER(ctypes.c_int)),
@@ -91,15 +92,15 @@ def np2c(a, dtype=np.float64) -> ctypes.c_void_p:
 
 
 def gen_boundaries(
-    x: np.ndarray, tag_lists: np.ndarray, triangles: np.ndarray, seed: int, sizes: np.ndarray
+    x: np.ndarray, tag_lists: np.ndarray, triangles: np.ndarray, seeds, sizes: np.ndarray
 ) -> tuple:
-    """Coarsened boundaries of the domain around a seed triangle: see `seamshlib/seamsh.c`.
+    """Coarsened boundaries of the domain around seed triangles: see `seamshlib/seamsh.c`.
 
     Args:
         x: the points sampled on the boundary curves [n, 2].
         tag_lists: the tags of the points, as built by `geometry._point_tag_lists`.
         triangles: a Delaunay triangulation of the points [m, 3].
-        seed: the index of a triangle inside the domain.
+        seeds: the indices of triangles inside the domain (at least one).
         sizes: the target size at each point [n].
     Returns:
         The boundary points [k, 2], and the boundary curves as a flat int array: for each curve
@@ -110,6 +111,7 @@ def gen_boundaries(
     tag_lists = np.array(tag_lists, dtype=np.int32, order="C")
     triangles = np.array(triangles, dtype=np.int32, order="C")
     sizes = np.array(sizes, dtype=np.float64, order="C")
+    seeds = np.atleast_1d(np.array(seeds, dtype=np.int32, order="C"))
     n_lines, n_points = ctypes.c_int(), ctypes.c_int()
     p_points = ctypes.POINTER(ctypes.c_double)()
     p_lines = ctypes.POINTER(ctypes.c_int)()
@@ -119,7 +121,8 @@ def gen_boundaries(
         np2c(tag_lists, np.int32),
         triangles.shape[0],
         np2c(triangles, np.int32),
-        seed,
+        seeds.shape[0],
+        np2c(seeds, np.int32),
         np2c(sizes),
         ctypes.byref(p_points),
         ctypes.byref(n_points),

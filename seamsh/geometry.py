@@ -191,6 +191,68 @@ def _chain_into_loops(curves: list, n_points: int) -> list:
     return loops
 
 
+def _points_in_polygon(points: np.ndarray, polygon: np.ndarray) -> np.ndarray:
+    """Whether each point [n, 2] is inside the closed polyline `polygon` [m, 2] (even-odd rule: a
+    half-line from the point crosses the polygon an odd number of times)."""
+    a, b = polygon[:-1], polygon[1:]
+    inside = np.zeros(len(points), bool)
+    for start in range(0, len(points), 256):  # by chunks, to bound the memory
+        px = points[start : start + 256, 0, None]
+        py = points[start : start + 256, 1, None]
+        straddles = (a[None, :, 1] > py) != (b[None, :, 1] > py)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            x_cross = a[None, :, 0] + (py - a[None, :, 1]) * (b[None, :, 0] - a[None, :, 0]) / (
+                b[None, :, 1] - a[None, :, 1]
+            )
+        crossings = np.count_nonzero(straddles & (px < x_cross), axis=1)
+        inside[start : start + 256] = crossings % 2 == 1
+    return inside
+
+
+def _nest_loops(polygons: list) -> tuple:
+    """Sorts closed loops that do not cross into regions, by containment.
+
+    A loop inside an even number of other loops (0, 2, ...) is the outer boundary of a region; a
+    loop inside an odd number of loops is a hole, of the region whose outer boundary is the
+    smallest loop that contains it. An island in a lake on an island is thus a hole of the lake,
+    and a lake on an island is a region of its own.
+
+    Args:
+        polygons: the loops, as closed polylines [m, 2].
+    Returns:
+        The regions, as lists of loop indices (the outer boundary, then the holes), ordered by the
+        index of their outer boundary; and for each loop the indices of the loops that contain it.
+    """
+    n = len(polygons)
+    lower = np.array([p.min(axis=0) for p in polygons])
+    upper = np.array([p.max(axis=0) for p in polygons])
+    # A loop is inside another when most of a few of its points are (the loops are polylines
+    # through the control points of curves, which splines only follow approximately).
+    samples = [p[np.linspace(0, len(p) - 1, 5, endpoint=False).astype(int)] for p in polygons]
+    containers = [[] for _ in range(n)]
+    for outer in range(n):
+        inside_box = np.where(
+            (lower >= lower[outer]).all(axis=1) & (upper <= upper[outer]).all(axis=1)
+        )[0]
+        inner = [i for i in inside_box if i != outer]
+        if not inner:
+            continue
+        inside = _points_in_polygon(np.vstack([samples[i] for i in inner]), polygons[outer])
+        for i, votes in zip(inner, inside.reshape(len(inner), -1)):
+            if 2 * votes.sum() > len(votes):
+                containers[i].append(outer)
+    regions = {}
+    for i in range(n):
+        if len(containers[i]) % 2 == 0:
+            regions.setdefault(i, [i])
+    for i in range(n):
+        if len(containers[i]) % 2 == 1:
+            # Its region is bounded by its innermost container: the one inside all the others.
+            parent = max(containers[i], key=lambda c: len(containers[c]))
+            regions[parent].append(i)
+    return [regions[i] for i in sorted(regions)], containers
+
+
 class Domain:
     """List the domain boundaries, forced mesh points and
     forced mesh lines."""
@@ -213,7 +275,8 @@ class Domain:
         merged), the `pointsid` of the curves and `pointid` of the forced points (indices in
         `_points`), cuts the curves where they touch each other, and sets `_curveloops`: the closed
         loops of boundary curves, as lists of (index in `_curves`, forward), the loop with the
-        largest bounding box first (gmsh takes the first loop of a surface as its outer boundary).
+        largest bounding box first; and `_regions`: the connected parts of the domain, as lists of
+        indices in `_curveloops` (the outer boundary, then the holes: see `_nest_loops`).
         """
         logger.info("Build topology")
         all_curves = list(chain(self._curves, self._interior_curves))
@@ -245,6 +308,30 @@ class Domain:
             bbox = np.max(loop_points, axis=0) - np.min(loop_points, axis=0)
             bbox_area[i] = bbox[0] * bbox[1]
         self._curveloops.insert(0, self._curveloops.pop(np.argmax(bbox_area)))
+        self._loop_polygons = [
+            np.vstack(
+                [
+                    self._points[self._curves[j].pointsid][:: 1 if forward else -1]
+                    for j, forward in loop
+                ]
+            )
+            for loop in self._curveloops
+        ]
+        self._regions, self._loop_containers = _nest_loops(self._loop_polygons)
+
+    def _region_of(self, point) -> int:
+        """The index in `_regions` of the region that holds `point` (in the projection of the
+        domain), or None if the point is outside the domain. Needs `_build_topology`."""
+        point = np.asarray(point, float)[None, :2]
+        containers = [
+            i
+            for i, polygon in enumerate(self._loop_polygons)
+            if _points_in_polygon(point, polygon)[0]
+        ]
+        if len(containers) % 2 == 0:
+            return None
+        outer = max(containers, key=lambda c: len(self._loop_containers[c]))
+        return [region[0] for region in self._regions].index(outer)
 
     def _add_geometry(self, geometry, tag, projection, curve_type, interior, onlypoints=False):
         if geometry.GetGeometryCount() != 0:
@@ -426,6 +513,12 @@ def coarsen_boundaries(
     the mesh size: features smaller than the size (small islands, inlets, narrow channels and
     whatever lies behind them) disappear. Interior curves and points are not kept.
 
+    To keep a basin that lies behind a passage narrower than the mesh size (e.g. the Black Sea
+    behind the Bosporus), give several points as `x0`, one in each basin: the result is then a
+    domain made of several regions that do not touch, which `seamsh.gmsh.mesh` meshes as separate
+    pieces. The boundary curves only say where the shore is, not on which side the water is: a
+    point given on land gives a mesh of that land.
+
     How it works: every boundary curve is sampled at half the mesh size; the samples are
     triangulated (Delaunay); starting from the triangle that holds `x0`, the triangles are
     flood-filled through the edges longer than the mesh size (an edge between two shores closer
@@ -435,7 +528,7 @@ def coarsen_boundaries(
 
     Args:
         domain: the domain to coarsen
-        x0: the coordinates of one point inside the domain.
+        x0: the coordinates of one point inside the domain, or a sequence of such points.
         x0_projection: the coordinates system of x0.
         mesh_size: a function returning the desired mesh element size for given
             coordinates
@@ -443,11 +536,12 @@ def coarsen_boundaries(
         The coarsened domain: closed boundaries made of POLYLINE curves, with the physical tags of
         the original curves.
     Raises:
-        ValueError: if `x0` is outside the convex hull of the boundary points, or the mesh size is
-            not positive.
+        ValueError: if a point of `x0` is outside the convex hull of the boundary points, or the
+            mesh size is not positive.
     """
     logger.info("Coarsen boundaries")
-    x0 = _tools.project_points(np.array([x0]), x0_projection, domain._projection)[0]
+    x0 = np.atleast_2d(np.asarray(x0, dtype=float))
+    seed_points = _tools.project_points(x0, x0_projection, domain._projection)
     sampled = []
     sample_tags = []
     tag_number = {}  # physical tag (str) -> integer tag, from 1, for the C library
@@ -475,11 +569,15 @@ def coarsen_boundaries(
     logger.info("Delaunay mesh of sampled points")
     triangulation = Delaunay(x)
     logger.info("Extract boundaries")
-    seed = triangulation.find_simplex(x0)
-    if seed == -1:
-        raise ValueError("First point outside domain")
+    seeds = triangulation.find_simplex(seed_points)
+    for point, seed in zip(x0, seeds):
+        if seed == -1:
+            raise ValueError(
+                f"Point {tuple(point.tolist())} of x0 is outside the domain "
+                "(outside the convex hull of the boundary points)"
+            )
     sizes = mesh_size(x, domain._projection)
-    points, lines = _tools.gen_boundaries(x, tag_lists, triangulation.simplices, seed, sizes)
+    points, lines = _tools.gen_boundaries(x, tag_lists, triangulation.simplices, seeds, sizes)
 
     coarse = Domain(domain._projection)
     tag_name = {number: name for name, number in tag_number.items()}

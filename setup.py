@@ -32,7 +32,7 @@ except ImportError:  # setuptools < 70
 
 # Keep in step with CHANGELOG.rst. Upstream's GitLab CI releases from tags "v-X.Y.Z" (PyPI) and
 # "w-X.Y.Z" (TestPyPI), which override it.
-version = "0.4.18"
+version = "0.5.0"
 commit_tag = os.environ.get("CI_COMMIT_TAG")
 if commit_tag and (commit_tag.startswith("v-") or commit_tag.startswith("w-")):
     version = commit_tag[2:]

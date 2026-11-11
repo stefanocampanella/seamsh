@@ -1,45 +1,19 @@
 """The C library (`seamshlib/`), called through ctypes as `seamsh.geometry` and `seamsh.gmsh` do."""
 
-import ctypes as c
-
 import numpy as np
 import pytest
 
 from seamsh import _tools
 
 
-def gen_boundaries(x, triangles, first, sizes, tags=None):
-    """Calls `gen_boundaries_from_points` and returns the output points [n, 2] and the boundary
-    curves as a list of (tag, point indices)."""
-    x = np.array(x, float)
-    triangles = np.array(triangles, np.int32)
+def gen_boundaries(x, triangles, seeds, sizes, tags=None):
+    """Calls the coarsening and returns the output points [n, 2] and the boundary curves as a list
+    of (tag, point indices)."""
     if tags is None:
         tags = np.ones(len(x), int)
     # One linked list of tags per point: (tag, index of the next entry or -1).
     tag_lists = np.c_[tags, np.full(len(x), -1)].astype(np.int32).reshape(-1)
-    n_lines, n_points = c.c_int(), c.c_int()
-    p_points, p_lines = c.POINTER(c.c_double)(), c.POINTER(c.c_int)()
-    _tools.lib.gen_boundaries_from_points.restype = c.c_int
-    error = _tools.lib.gen_boundaries_from_points(
-        c.c_int(len(x)),
-        _tools.np2c(x),
-        _tools.np2c(tag_lists, np.int32),
-        c.c_int(len(triangles)),
-        _tools.np2c(triangles, np.int32),
-        c.c_int(first),
-        _tools.np2c(np.array(sizes, float)),
-        c.byref(p_points),
-        c.byref(n_points),
-        c.byref(p_lines),
-        c.byref(n_lines),
-    )
-    if error != 0:
-        assert not p_points and not p_lines and n_points.value == 0 and n_lines.value == 0
-        raise RuntimeError(error)
-    points = np.ctypeslib.as_array(p_points, (n_points.value * 2,)).reshape(-1, 2).copy()
-    lines = np.ctypeslib.as_array(p_lines, (n_lines.value,)).copy()
-    _tools.lib.libcfree(p_points)
-    _tools.lib.libcfree(p_lines)
+    points, lines = _tools.gen_boundaries(x, tag_lists, triangles, seeds, sizes)
     curves, start = [], 0
     for end in np.where(lines == -1)[0]:
         curves.append((int(lines[start]), lines[start + 1 : end].tolist()))
@@ -110,18 +84,34 @@ def test_polymesh_triangulates_points():
 
 
 def test_errors_are_returned_not_fatal():
-    """An inconsistent input must give an error code and no result. It used to end the Python
-    process (`exit(1)`) or to loop forever."""
+    """An inconsistent input must raise an exception. It used to end the Python process
+    (`exit(1)`) or to loop forever."""
     # A seed that is not a triangle.
-    with pytest.raises(RuntimeError, match="2"):
+    with pytest.raises(RuntimeError, match="inconsistent triangulation"):
         gen_boundaries(RING_POINTS, RING_TRIANGLES, 99, np.full(8, 1.0))
-    # Three triangles on one edge (0, 1): not a triangulation of the plane.
+    # Three triangles on one edge (0, 1): not a triangulation of the plane. Whatever comes out, it
+    # must come back.
     points = [[0, 0], [10, 0], [5, 8], [5, -8], [5, 3]]
     triangles = [[0, 1, 2], [1, 0, 3], [0, 1, 4]]
     try:
         gen_boundaries(points, triangles, 0, np.full(5, 1.0))
     except RuntimeError as error:
-        assert str(error) == "2"
+        assert "inconsistent triangulation" in str(error)
+
+
+def test_several_seeds():
+    """Each seed fills its own region. Seeds in the ring and in the hole of the ring take the whole
+    square (one boundary); two seeds in the ring are the same as one."""
+    size = np.full(8, 2.5)
+    _, both = gen_boundaries(RING_POINTS, RING_TRIANGLES, [0, 8], size)
+    assert len(both) == 1 and len(both[0][1]) == 5
+    points_one, one = gen_boundaries(RING_POINTS, RING_TRIANGLES, 0, size)
+    points_two, two = gen_boundaries(RING_POINTS, RING_TRIANGLES, [0, 4], size)
+    assert one == two and len(one) == 2
+    np.testing.assert_array_equal(points_one, points_two)
+    # The hole alone: its own boundary only.
+    _, hole = gen_boundaries(RING_POINTS, RING_TRIANGLES, [8], size)
+    assert len(hole) == 1 and len(hole[0][1]) == 5
 
 
 def test_inside_out_slivers_do_not_break_the_walks():
