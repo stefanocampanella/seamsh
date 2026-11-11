@@ -30,8 +30,9 @@ __all__ = ["mesh", "convert_to_gis", "reproject"]
 
 logger = logging.getLogger(__name__)
 
+
 def _gmsh_curve_geo(curve_type: _geometry.CurveType, pointsid):
-    pts = list(i+1 for i in pointsid)
+    pts = list(i + 1 for i in pointsid)
     if curve_type == _geometry.CurveType.SPLINE:
         return [gmsh.model.geo.addSpline(pts)]
     elif curve_type == _geometry.CurveType.BSPLINE:
@@ -51,11 +52,11 @@ def _curve_sample_gmsh_tag(tag, lc, projection):
     x = gmsh.model.getValue(1, tag, xi).reshape([-1, 3])
     size = lc(x, projection)
     while True:
-        dist = _tools.np.linalg.norm(x[1:, :]-x[:-1, :], axis=1)
+        dist = _tools.np.linalg.norm(x[1:, :] - x[:-1, :], axis=1)
         target = _tools.np.minimum(size[1:], size[:-1])
         if not _tools.np.any(target < dist):
             break
-        exi = (xi[1:][target < dist]+xi[:-1][target < dist])/2
+        exi = (xi[1:][target < dist] + xi[:-1][target < dist]) / 2
         ex = gmsh.model.getValue(1, tag, exi).reshape([-1, 3])
         esize = lc(ex, projection)
         xi = _tools.np.hstack([xi, exi])
@@ -66,8 +67,7 @@ def _curve_sample_gmsh_tag(tag, lc, projection):
     return x[:, :2], xi, size
 
 
-class _lcproj():
-
+class _lcproj:
     def __init__(self, lc, proj):
         self.lc = lc
         self.projection = proj
@@ -76,23 +76,22 @@ class _lcproj():
         xlc = _tools.project_points(x, self.projection, projection)
         x2 = _tools.np.copy(x)
         eps = 1e-8
-        x2[:, :projection.GetAxesCount()] += eps
+        x2[:, : projection.GetAxesCount()] += eps
         xlc = _tools.project_points(x, self.projection, projection)
         xlc2 = _tools.project_points(x2, self.projection, projection)
         slc = self.lc(xlc, projection)
         enorm = _tools.np.hypot(eps, eps)
-        h = _tools.np.linalg.norm(xlc2-xlc, axis=1)/enorm
-        return slc/h
+        h = _tools.np.linalg.norm(xlc2 - xlc, axis=1) / enorm
+        return slc / h
 
 
 def _curve_sample(curve, lc, projection):
     gmsh.model.add(str(_tools.uuid.uuid4()))
-    tags = list([gmsh.model.geo.addPoint(*x, 0) - 1
-                 for x in curve.points[:-1, :]])
-    if _tools.np.linalg.norm(curve.points[0, :]-curve.points[-1, :]) < 1e-8:
+    tags = list([gmsh.model.geo.addPoint(*x, 0) - 1 for x in curve.points[:-1, :]])
+    if _tools.np.linalg.norm(curve.points[0, :] - curve.points[-1, :]) < 1e-8:
         tags.append(tags[0])
     else:
-        tags.append(gmsh.model.geo.addPoint(*curve.points[-1, :], 0)-1)
+        tags.append(gmsh.model.geo.addPoint(*curve.points[-1, :], 0) - 1)
     ltag = _gmsh_curve_geo(curve.curve_type, tags)
     gmsh.model.geo.synchronize()
     plc = _lcproj(lc, curve.projection)
@@ -108,13 +107,12 @@ def _create_gmsh_geometry(domain: _geometry.Domain):
     gmsh.option.setNumber("Mesh.CharacteristicLengthFactor", 1)
     gmsh.option.setNumber("Mesh.CharacteristicLengthFromCurvature", 0)
     gmsh.option.setNumber("Mesh.CharacteristicLengthExtendFromBoundary", 0)
-    gmsh.option.setNumber("Mesh.CharacteristicLengthFromParametricPoints",
-                          1)
+    gmsh.option.setNumber("Mesh.CharacteristicLengthFromParametricPoints", 1)
     ctags = []
     cltag = []
     physicals = {}
     for i, x in enumerate(domain._points):
-        gmsh.model.geo.addPoint(*x, 0, tag=i+1)
+        gmsh.model.geo.addPoint(*x, 0, tag=i + 1)
     for cl in domain._curveloops:
         ctag = []
         for i, (l, o) in enumerate(cl):
@@ -132,11 +130,10 @@ def _create_gmsh_geometry(domain: _geometry.Domain):
         physicals.setdefault(curve.tag, []).extend(tags)
     physicalspt = {}
     for point in domain._interior_points:
-        physicalspt.setdefault(point.tag, []).append(point.pointid+1)
+        physicalspt.setdefault(point.tag, []).append(point.pointid + 1)
     gmsh.model.geo.synchronize()
     gmsh.model.mesh.embed(1, embeded, 2, stag)
-    gmsh.model.mesh.embed(
-        0, [p.pointid+1 for p in domain._interior_points], 2, stag)
+    gmsh.model.mesh.embed(0, [p.pointid + 1 for p in domain._interior_points], 2, stag)
     for name, tags in physicals.items():
         tag = gmsh.model.addPhysicalGroup(1, tags)
         gmsh.model.setPhysicalName(1, tag, name)
@@ -147,45 +144,43 @@ def _create_gmsh_geometry(domain: _geometry.Domain):
     gmsh.model.setPhysicalName(2, tag, "domain")
 
 
-def _mesh_bgrid(domain: _geometry.Domain,
-                mesh_size: _geometry.MeshSizeCallback,
-                smoothness: float):
+def _mesh_bgrid(domain: _geometry.Domain, mesh_size: _geometry.MeshSizeCallback, smoothness: float):
     logger.info("Build mesh size field")
     np = _tools.np
     x0 = np.min(domain._points, axis=0)
     x1 = np.max(domain._points, axis=0)
-    d = np.max(x1-x0)/100
-    x = np.arange(x0[0], x1[0]+d, d)
-    y = np.arange(x0[1], x1[1]+d, d)
+    d = np.max(x1 - x0) / 100
+    x = np.arange(x0[0], x1[0] + d, d)
+    y = np.arange(x0[1], x1[1] + d, d)
     xx, yy = np.meshgrid(x, y)
     xy = np.stack((xx.T, yy.T), axis=2).reshape(-1, 2)
     v = mesh_size(xy, domain._projection)
     poly = _tools.PolyMesh(x0, x1)
     poly.add_points(xy)
     while True:
-        xyz = np.c_[xy.reshape(-1, 2), np.zeros((xy.size//2, 1))]
+        xyz = np.c_[xy.reshape(-1, 2), np.zeros((xy.size // 2, 1))]
         tri = poly.get_triangles()
         edges = np.r_[tri[:, [0, 1]], tri[:, [1, 2]], tri[:, [2, 0]]]
         edges.sort(axis=1)
         shift = 2**32
         edges = edges.astype(np.uint64)
-        ekey = np.unique(edges[:, 0]*shift+edges[:, 1])
-        edges = np.c_[ekey//shift, ekey % shift]
-        dedges = xy[edges[:, 0]]-xy[edges[:, 1]]
+        ekey = np.unique(edges[:, 0] * shift + edges[:, 1])
+        edges = np.c_[ekey // shift, ekey % shift]
+        dedges = xy[edges[:, 0]] - xy[edges[:, 1]]
         elength = np.hypot(dedges[:, 0], dedges[:, 1])
         while True:
             vo = v.copy()
-            cond = v[edges[:, 0]] > v[edges[:, 1]]+elength*smoothness
-            v[edges[cond, 0]] = v[edges[cond, 1]]+elength[cond]*smoothness
-            cond = v[edges[:, 1]] > v[edges[:, 0]]+elength*smoothness
-            v[edges[cond, 1]] = v[edges[cond, 0]]+elength[cond]*smoothness
-            if np.max(np.abs(v-vo)) < 1:
+            cond = v[edges[:, 0]] > v[edges[:, 1]] + elength * smoothness
+            v[edges[cond, 0]] = v[edges[cond, 1]] + elength[cond] * smoothness
+            cond = v[edges[:, 1]] > v[edges[:, 0]] + elength * smoothness
+            v[edges[cond, 1]] = v[edges[cond, 0]] + elength[cond] * smoothness
+            if np.max(np.abs(v - vo)) < 1:
                 break
         eminsize = np.minimum(v[edges[:, 0]], v[edges[:, 1]])
-        tocut = np.where(eminsize*2 < elength)[0]
+        tocut = np.where(eminsize * 2 < elength)[0]
         if tocut.size == 0:
             break
-        newp = (xy[edges[tocut, 0]]+xy[edges[tocut, 1]])/2
+        newp = (xy[edges[tocut, 0]] + xy[edges[tocut, 1]]) / 2
         xy = np.r_[xy, newp]
         v = np.r_[v, mesh_size(newp, domain._projection)]
         poly.add_points(newp)
@@ -206,33 +201,36 @@ def _mesh_bgrid(domain: _geometry.Domain,
     gmsh.model.mesh.generate(2)
 
 
-def _mesh_successive(domain: _geometry.Domain,
-                     mesh_size: _geometry.MeshSizeCallback,
-                     intermediate_file_name: str = None):
+def _mesh_successive(
+    domain: _geometry.Domain,
+    mesh_size: _geometry.MeshSizeCallback,
+    intermediate_file_name: str = None,
+):
     for curve in domain._curves:
         curve.mesh_size = mesh_size(curve.points, domain._projection)
 
     # 1D mesh
-    for icurve, (dim, tag) in tqdm.contrib.tenumerate(gmsh.model.getEntities(1),
-                                                      desc="(seamsh) Sample curves for mesh size"):
-        _, xi, size = _curve_sample_gmsh_tag(tag,
-                                             lambda x, p: mesh_size(x, p)/2,
-                                             domain._projection)
-        gmsh.model.mesh.setSizeAtParametricPoints(dim, tag, xi, size*2)
-    logger.info("%d curve sampled", icurve+1)
+    for icurve, (dim, tag) in tqdm.contrib.tenumerate(
+        gmsh.model.getEntities(1), desc="(seamsh) Sample curves for mesh size"
+    ):
+        _, xi, size = _curve_sample_gmsh_tag(
+            tag, lambda x, p: mesh_size(x, p) / 2, domain._projection
+        )
+        gmsh.model.mesh.setSizeAtParametricPoints(dim, tag, xi, size * 2)
+    logger.info("%d curve sampled", icurve + 1)
     logger.info("Generate 1D mesh")
     gmsh.model.mesh.generate(1)
     if intermediate_file_name is not None:
         if intermediate_file_name == "-":
             gmsh.fltk.run()
         else:
-            gmsh.write(intermediate_file_name+"_1d.msh")
+            gmsh.write(intermediate_file_name + "_1d.msh")
     # 2D mesh ##
     logger.info("Generate initial 2D mesh")
     _, x, u = gmsh.model.mesh.getNodes()
     x = x.reshape([-1, 3])
-    domain_size = _tools.np.max(x, axis=0)-_tools.np.min(x, axis=0)
-    initlc = _tools.np.linalg.norm(domain_size)/100
+    domain_size = _tools.np.max(x, axis=0) - _tools.np.min(x, axis=0)
+    initlc = _tools.np.linalg.norm(domain_size) / 100
     gmsh.option.setNumber("Mesh.CharacteristicLengthFromParametricPoints", 0)
     gmsh.option.setNumber("Mesh.CharacteristicLengthMin", initlc)
     gmsh.option.setNumber("Mesh.CharacteristicLengthMax", initlc)
@@ -243,7 +241,7 @@ def _mesh_successive(domain: _geometry.Domain,
     gmsh.model.mesh.field.setAsBackgroundMesh(bg_field)
     nadapt = 3
     for i in range(nadapt):
-        logger.info("Generate refined 2D mesh (pass %d/%d)",i+1, nadapt)
+        logger.info("Generate refined 2D mesh (pass %d/%d)", i + 1, nadapt)
         node_tags, node_x, _ = gmsh.model.mesh.getNodes(-1, -1)
         node_x = node_x.reshape([-1, 3])
         nodes_map = dict({tag: i for i, tag in enumerate(node_tags)})
@@ -254,17 +252,17 @@ def _mesh_successive(domain: _geometry.Domain,
             nn = 3 if etype == 2 else 4
             enode = list(nodes_map[t] for t in enode)
             enode = _tools.np.array(enode).reshape([-1, nn])
-            xnode = node_x[enode, :].swapaxes(1, 2).reshape([-1, nn*3])
+            xnode = node_x[enode, :].swapaxes(1, 2).reshape([-1, nn * 3])
             data = _tools.np.column_stack([xnode, node_lc[enode]])
-            gmsh.view.addListData(sf_view, "ST"if etype == 2 else "SQ",
-                                  enode.shape[0], data.reshape([-1]))
+            gmsh.view.addListData(
+                sf_view, "ST" if etype == 2 else "SQ", enode.shape[0], data.reshape([-1])
+            )
         gmsh.model.mesh.field.setNumber(bg_field, "ViewTag", sf_view)
         if intermediate_file_name is not None:
             if intermediate_file_name == "-":
                 gmsh.fltk.run()
             else:
-                gmsh.view.write(sf_view,
-                                intermediate_file_name+"_2d_"+str(i)+".pos")
+                gmsh.view.write(sf_view, intermediate_file_name + "_2d_" + str(i) + ".pos")
         gmsh.model.mesh.generate(2)
         gmsh.view.remove(sf_view)
     gmsh.model.mesh.field.remove(bg_field)
@@ -277,18 +275,18 @@ def _reproject(input_srs, output_srs):
             input_srs = _tools.osr.SpatialReference()
             input_srs.ImportFromWkt(p[1])
     ntags, nx, _ = gmsh.model.mesh.get_nodes()
-    nx = nx.reshape(-1,3)
+    nx = nx.reshape(-1, 3)
     nx = _tools.project_points(nx, input_srs, output_srs)
-    for i,x in zip(ntags, nx):
+    for i, x in zip(ntags, nx):
         if len(x) == 3:
             gmsh.model.mesh.set_node(i, [x[0], x[1], x[2]], [])
-        else :
+        else:
             gmsh.model.mesh.set_node(i, [x[0], x[1], 0], [])
 
     for _, tag in gmsh.model.get_entities(0):
         _, x, _ = gmsh.model.mesh.get_nodes(0, tag)
         if x.size == 0:
-            gmsh.model.remove_entities([(0,tag)])
+            gmsh.model.remove_entities([(0, tag)])
         else:
             if len(x) == 3:
                 gmsh.model.set_coordinates(tag, x[0], x[1], x[2])
@@ -296,17 +294,17 @@ def _reproject(input_srs, output_srs):
                 gmsh.model.set_coordinates(tag, x[0], x[1], 0)
 
 
-
-def mesh(domain: _geometry.Domain,
-         mesh_size: _geometry.MeshSizeCallback,
-         version: float = 4.1,
-         intermediate_file_name: str = None,
-         smoothness=0.3,
-         output_srs: _tools.osr.SpatialReference = None,
-         transfinite_curves: dict = {},
-         quad: bool = False
-         ) -> None:
-    """ Calls gmsh to generate a mesh from a geometry and a mesh size callback, it assumes that the gmsh is initialized
+def mesh(
+    domain: _geometry.Domain,
+    mesh_size: _geometry.MeshSizeCallback,
+    version: float = 4.1,
+    intermediate_file_name: str = None,
+    smoothness=0.3,
+    output_srs: _tools.osr.SpatialReference = None,
+    transfinite_curves: dict = {},
+    quad: bool = False,
+) -> None:
+    """Calls gmsh to generate a mesh from a geometry and a mesh size callback, it assumes that the gmsh is initialized
     and use the current model.
 
     Args:
@@ -323,8 +321,8 @@ def mesh(domain: _geometry.Domain,
             coordinate system of the domain is used).
         tranfinite_curves : dict(str, int) prescribe a fixed number of mesh getElements
             on curves with given physical tag.
-        quad: if True, generate quadrangles instead of triangles. This a achieved by 
-            generating a quad-dominant mesh and then splitting all elements (quads and 
+        quad: if True, generate quadrangles instead of triangles. This a achieved by
+            generating a quad-dominant mesh and then splitting all elements (quads and
             triangles) into quads. So the resulting mesh size is half the prescribed one.
     """
     logger.info("Generate mesh")
@@ -365,17 +363,19 @@ def mesh(domain: _geometry.Domain,
     else:
         output_srs = domain._projection
     if output_srs is not None:
-        gmsh.model.set_attribute("Projection", ["WKT",output_srs.ExportToWkt()])
+        gmsh.model.set_attribute("Projection", ["WKT", output_srs.ExportToWkt()])
 
     gmsh.option.setNumber("Mesh.MshFileVersion", version)
 
 
-def reproject(input_filename : str,
-              input_srs : _tools.osr.SpatialReference,
-              output_filename : str,
-              output_srs : _tools.osr.SpatialReference,
-              output_version: float = 4.1):
-    """ Change the coordinate of an existing mesh.
+def reproject(
+    input_filename: str,
+    input_srs: _tools.osr.SpatialReference,
+    output_filename: str,
+    output_srs: _tools.osr.SpatialReference,
+    output_version: float = 4.1,
+):
+    """Change the coordinate of an existing mesh.
 
     Args:
         input_filename: input mesh file (any format readable by gmsh).
@@ -390,15 +390,15 @@ def reproject(input_filename : str,
     _reproject(input_srs, output_srs)
     gmsh.option.setNumber("Mesh.MshFileVersion", output_version)
     if output_srs is not None:
-        gmsh.model.set_attribute("Projection", ["WKT",output_srs.ExportToWkt()])
+        gmsh.model.set_attribute("Projection", ["WKT", output_srs.ExportToWkt()])
     gmsh.write(output_filename)
     gmsh.model.remove()
 
 
-def convert_to_gis(input_filename: str,
-                   projection: _tools.osr.SpatialReference,
-                   output_filename: str) -> None:
-    """ Converts a triangular gmsh mesh into shapefile or geopackage.
+def convert_to_gis(
+    input_filename: str, projection: _tools.osr.SpatialReference, output_filename: str
+) -> None:
+    """Converts a triangular gmsh mesh into shapefile or geopackage.
 
     Args:
         input_filename : any mesh file readable by gmsh (typically
@@ -408,16 +408,15 @@ def convert_to_gis(input_filename: str,
             re-projections are performed (if none mesh projection will be used).
         output_filename : shape file (.shp) or geopackage (.gpkg) file
     """
-    _tools.log("Convert \"{}\" into \"{}\"".format(input_filename,
-               output_filename), True)
+    _tools.log('Convert "{}" into "{}"'.format(input_filename, output_filename), True)
     gmsh.model.add(str(_tools.uuid.uuid4()))
     gmsh.open(input_filename)
     if output_filename.endswith(".shp"):
-        shpdriver = _tools.ogr.GetDriverByName('ESRI Shapefile')
+        shpdriver = _tools.ogr.GetDriverByName("ESRI Shapefile")
     elif output_filename.endswith(".gpkg"):
-        shpdriver = _tools.ogr.GetDriverByName('GPKG')
+        shpdriver = _tools.ogr.GetDriverByName("GPKG")
     else:
-        raise ValueError("Unknown file extension '" + output_filename+"'")
+        raise ValueError("Unknown file extension '" + output_filename + "'")
     if _tools.os.path.exists(output_filename):
         shpdriver.DeleteDataSource(output_filename)
     out_data_source = shpdriver.CreateDataSource(output_filename)
@@ -426,9 +425,7 @@ def convert_to_gis(input_filename: str,
         if len(p) == 2 and p[0] == "WKT":
             projection = _tools.osr.SpatialReference()
             projection.ImportFromWkt(p[1])
-    out_layer = out_data_source.CreateLayer("mesh",
-                                            geom_type=_tools.ogr.wkbPolygon,
-                                            srs=projection)
+    out_layer = out_data_source.CreateLayer("mesh", geom_type=_tools.ogr.wkbPolygon, srs=projection)
     out_layer.CreateField(_tools.ogr.FieldDefn("id", _tools.ogr.OFTInteger))
     id_field = out_layer.FindFieldIndex("id", 1)
 
@@ -442,7 +439,7 @@ def convert_to_gis(input_filename: str,
     header = _tools.struct.pack("<biii", 1, 3, 1, 4)
     out_data_source.StartTransaction()
     for i, tn in zip(tri_i, tri_n):
-        wkb = header+x[tn, :2].astype('<f8').tobytes()
+        wkb = header + x[tn, :2].astype("<f8").tobytes()
         feat = _tools.ogr.Feature(out_layer.GetLayerDefn())
         feat.SetGeometryDirectly(_tools.ogr.CreateGeometryFromWkb(wkb))
         feat.SetField(id_field, int(i))
@@ -451,11 +448,14 @@ def convert_to_gis(input_filename: str,
     out_data_source.CommitTransaction()
     gmsh.model.remove()
 
-def convert_to_ugrid_mesh_file(input_filename: str,
-                               dico_var: dict,
-                               projection: _tools.osr.SpatialReference,
-                               output_filename: str) -> None:
-    """ Converts a triangular gmsh mesh into netcdf ugrid mesh file.
+
+def convert_to_ugrid_mesh_file(
+    input_filename: str,
+    dico_var: dict,
+    projection: _tools.osr.SpatialReference,
+    output_filename: str,
+) -> None:
+    """Converts a triangular gmsh mesh into netcdf ugrid mesh file.
 
     Args:
         input_filename : any mesh file readable by gmsh (typically
@@ -467,8 +467,7 @@ def convert_to_ugrid_mesh_file(input_filename: str,
     if not _tools.xarray_available:
         raise ValueError("The xarray python library is required to write ugrid files.")
 
-    _tools.log("Convert \"{}\" into \"{}\"".format(input_filename,
-               output_filename), True)
+    _tools.log('Convert "{}" into "{}"'.format(input_filename, output_filename), True)
     gmsh.model.add(str(_tools.uuid.uuid4()))
     gmsh.open(input_filename)
 
@@ -477,73 +476,84 @@ def convert_to_ugrid_mesh_file(input_filename: str,
 
     node_i, nodes, _ = gmsh.model.mesh.getNodes()
     nodes = nodes.reshape([-1, 3])
-    x = nodes[:,0]
-    y = nodes[:,1]
+    x = nodes[:, 0]
+    y = nodes[:, 1]
 
     # unit_proj = projection.GetLinearUnits()
     # print(unit_proj)
-    
-    node = _tools.np.arange(0,len(x),1)
+
+    node = _tools.np.arange(0, len(x), 1)
     element = _tools.np.subtract(tri_n, 1)
-    nvertex = _tools.np.array([0,1,2], dtype='int32')
-    nele = _tools.np.arange(0,len(tri_i),1, dtype="int32")
-    mesh_topology = _tools.np.array([-2147483647], dtype='int32')
-    single = _tools.np.array([0], dtype='int32')
-    
+    nvertex = _tools.np.array([0, 1, 2], dtype="int32")
+    nele = _tools.np.arange(0, len(tri_i), 1, dtype="int32")
+    mesh_topology = _tools.np.array([-2147483647], dtype="int32")
+    single = _tools.np.array([0], dtype="int32")
+
     ds = _tools.xr.Dataset()
-    
-    ds.coords['longitude'] = (('node'),_tools.np.double(x))
-    ds['longitude'].attrs= {'long_name': 'longitude',
-                    'standard_name': 'longitude',
-                    'units': 'm',
-                    'positive': 'east'}
 
-    ds.coords['latitude'] = (('node'),_tools.np.double(y))
-    ds['latitude'].attrs ={'long_name': 'latitude',
-                    'standard_name': 'latitude',
-                    'units': 'm',
-                    'positive': 'north'}
+    ds.coords["longitude"] = (("node"), _tools.np.double(x))
+    ds["longitude"].attrs = {
+        "long_name": "longitude",
+        "standard_name": "longitude",
+        "units": "m",
+        "positive": "east",
+    }
 
-    ds['element'] = (('nele', 'nvertex'),element)
-    ds['element'].attrs = {'long_name': 'element',
-                           'standard_name': 'face_node_connectivity',
-                           'units': 'nondimensional',
-                           'start_index': 0}
+    ds.coords["latitude"] = (("node"), _tools.np.double(y))
+    ds["latitude"].attrs = {
+        "long_name": "latitude",
+        "standard_name": "latitude",
+        "units": "m",
+        "positive": "north",
+    }
 
+    ds["element"] = (("nele", "nvertex"), element)
+    ds["element"].attrs = {
+        "long_name": "element",
+        "standard_name": "face_node_connectivity",
+        "units": "nondimensional",
+        "start_index": 0,
+    }
 
-    ds['mesh_topology'] = ('single',mesh_topology)
-    ds['mesh_topology'].attrs = {'long_name': 'mesh topology',
-                                 'standard_name': 'mesh_topology',
-                                 'node_coordinates': 'longitude latitude',
-                                 'face_node_connectivity': 'element',
-                                 'cf_role': 'mesh_topology',
-                                 'topology_dimension': 2}
-    
+    ds["mesh_topology"] = ("single", mesh_topology)
+    ds["mesh_topology"].attrs = {
+        "long_name": "mesh topology",
+        "standard_name": "mesh_topology",
+        "node_coordinates": "longitude latitude",
+        "face_node_connectivity": "element",
+        "cf_role": "mesh_topology",
+        "topology_dimension": 2,
+    }
+
     for var in dico_var.keys():
-        var_val = dico_var[var]['callable_func'](nodes, projection)
-        ds[var] = (('node'),var_val)
-        ds[var].attrs = {'long_name': dico_var[var]['long_name'],
-                         'standard_name': dico_var[var]['standard_name'],
-                         'location': 'node',
-                         'mesh': 'mesh_topology',
-                         'units': dico_var[var]['units']}
+        var_val = dico_var[var]["callable_func"](nodes, projection)
+        ds[var] = (("node"), var_val)
+        ds[var].attrs = {
+            "long_name": dico_var[var]["long_name"],
+            "standard_name": dico_var[var]["standard_name"],
+            "location": "node",
+            "mesh": "mesh_topology",
+            "units": dico_var[var]["units"],
+        }
 
-    encoding = {v: {'zlib': True, 'complevel': 4} for v in dico_var.keys()}
-    ds.attrs = {'title': gmsh.model.getCurrent(),
-                'institution': 'Institution Name',
-                'source': 'UCL(SEAMSH) & BRGM',
-                'references': 'REF',
-                'Conventions': 'CF-1.6, UGRID-1.0'}
-    
-    ds.to_netcdf(path=output_filename, format='NETCDF4',encoding=encoding)
+    encoding = {v: {"zlib": True, "complevel": 4} for v in dico_var.keys()}
+    ds.attrs = {
+        "title": gmsh.model.getCurrent(),
+        "institution": "Institution Name",
+        "source": "UCL(SEAMSH) & BRGM",
+        "references": "REF",
+        "Conventions": "CF-1.6, UGRID-1.0",
+    }
+
+    ds.to_netcdf(path=output_filename, format="NETCDF4", encoding=encoding)
     # ds.to_netcdf(path=output_filename, format='NETCDF4')
 
     gmsh.model.remove()
 
 
-def merge_meshes(filename_orig:str, filename_dest:str, filename_out:str, seamlines:dict): 
-    """ Merge two meshes. No coordinate conversion are done. Projection
-        should be identical on both meshes. 
+def merge_meshes(filename_orig: str, filename_dest: str, filename_out: str, seamlines: dict):
+    """Merge two meshes. No coordinate conversion are done. Projection
+        should be identical on both meshes.
 
     Args:
         filename_orig : any mesh file readable by gmsh (typically
@@ -552,30 +562,36 @@ def merge_meshes(filename_orig:str, filename_dest:str, filename_out:str, seamlin
             a .msh file).
         filename_out : any mesh file writable by gmsh (typically
             a .msh file)
-        seamlines : dictionary of physicals tag of matching lines 
+        seamlines : dictionary of physicals tag of matching lines
             from orig mesh to dest mesh. There should be the same
             number of nodes on both side. Each node of orig will
             be mapped to its closest node on dest.
     """
+
     def get_ordered_nodes_for_physical_line(model, ptag):
         gmsh.model.set_current(model)
-        for d,i in gmsh.model.get_physical_groups(1):
+        for d, i in gmsh.model.get_physical_groups(1):
             if gmsh.model.get_physical_name(1, i) == ptag:
                 entities = gmsh.model.get_entities_for_physical_group(1, i)
                 if len(entities) != 1:
                     raise ValueError("Multiple entities on physical tag {ptag} on mesh {model}")
                 n_, x_, _ = gmsh.model.mesh.get_nodes(1, entities[0], True, False)
-                x_ = x_.reshape(-1,3)
+                x_ = x_.reshape(-1, 3)
                 xmap = dict(zip(n_, x_))
                 etag, enodes = gmsh.model.mesh.get_elements_by_type(1, entities[0])
                 enodes = enodes.reshape(-1, 2)
-                nextn = dict((a,b) for (a,b) in enodes)
-                pfrom = gmsh.model.get_boundary([(1,entities[0])])[0][1]
+                nextn = dict((a, b) for (a, b) in enodes)
+                pfrom = gmsh.model.get_boundary([(1, entities[0])])[0][1]
                 points = [pfrom]
                 while points[-1] in nextn:
                     points.append(nextn[points[-1]])
-                return entities[0], _tools.np.array(points, _tools.np.uint64), _tools.np.array(list(xmap[i] for i in points))
+                return (
+                    entities[0],
+                    _tools.np.array(points, _tools.np.uint64),
+                    _tools.np.array(list(xmap[i] for i in points)),
+                )
         raise ValueError(f"Physical tag '{ptag}' not found in mesh '{model}'")
+
     gmsh.open(filename_dest)
     model_dest = gmsh.model.get_current()
     itag = gmsh.model.mesh.get_max_node_tag()
@@ -588,14 +604,14 @@ def merge_meshes(filename_orig:str, filename_dest:str, filename_out:str, seamlin
     for tagfrom, tagto in seamlines.items():
         ento, nodesto, xto = get_ordered_nodes_for_physical_line(model_dest, tagto)
         entfrom, nodesfrom, xfrom = get_ordered_nodes_for_physical_line(model_orig, tagfrom)
-        if nodesto.size != nodesfrom.size :
+        if nodesto.size != nodesfrom.size:
             raise ValueError(f"Nodes do not match for tags {tagfrom}, {tagto}")
-        if  _tools.np.linalg.norm(xto-xfrom) >  _tools.np.linalg.norm(xto-xfrom[::-1]):
+        if _tools.np.linalg.norm(xto - xfrom) > _tools.np.linalg.norm(xto - xfrom[::-1]):
             nodesto = nodesto[::-1]
         ignoreentities.append((1, entfrom))
         print("---")
         for i, j in zip(nodesto, nodesfrom):
-            print(j,i)
+            print(j, i)
             nodemap[j] = i
 
     for dim in range(4):
@@ -606,7 +622,7 @@ def merge_meshes(filename_orig:str, filename_dest:str, filename_out:str, seamlin
             etypes, etags, enodes = gmsh.model.mesh.get_elements(dim, tag)
             keep = list(t not in nodemap for t in ntag)
             n = _tools.np.sum(keep)
-            dntag = _tools.np.uint64(itag)+_tools.np.arange(n, dtype=ntag.dtype)+1
+            dntag = _tools.np.uint64(itag) + _tools.np.arange(n, dtype=ntag.dtype) + 1
             itag += n
             if (dim, tag) in ignoreentities:
                 continue
@@ -615,13 +631,17 @@ def merge_meshes(filename_orig:str, filename_dest:str, filename_out:str, seamlin
             gmsh.model.set_current(model_dest)
             dtag = gmsh.model.add_discrete_entity(dim)
             entitymap[(dim, tag)] = dtag
-            gmsh.model.mesh.add_nodes(dim, dtag, dntag, ncoord.reshape(-1,3)[keep].reshape(-1),
-                                      npcoord.reshape(-1,dim)[keep].reshape(-1) if npcoord.size !=
-                                      0 else [])
+            gmsh.model.mesh.add_nodes(
+                dim,
+                dtag,
+                dntag,
+                ncoord.reshape(-1, 3)[keep].reshape(-1),
+                npcoord.reshape(-1, dim)[keep].reshape(-1) if npcoord.size != 0 else [],
+            )
             for t0, t1 in zip(ntag[keep], dntag):
-                nodemap[t0] = t1 
+                nodemap[t0] = t1
             dntag = list(list(nodemap[n] for n in l) for l in enodes)
-            for et, dnt in zip (etypes, dntag):
+            for et, dnt in zip(etypes, dntag):
                 gmsh.model.mesh.add_elements_by_type(dtag, et, [], dnt)
 
     gmsh.model.set_current(model_orig)

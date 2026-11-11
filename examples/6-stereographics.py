@@ -1,7 +1,7 @@
 # %%
 # Stereographic projection
 # ========================
-# This example illustrates the use of the stereographic projection to generate 
+# This example illustrates the use of the stereographic projection to generate
 # a mesh covering most of the Earth's surface.
 
 # %%
@@ -49,11 +49,12 @@ dist_coast = seamsh.field.Distance(domain, 10000, projection=cart_srs)
 # %%
 # it is necessary to convert the mesh size to stereographic coordinates
 
+
 def mesh_size(x, projection):
-    s_coast = np.clip((dist_coast(x, projection)-20000)*0.5, 20000, 100000)
+    s_coast = np.clip((dist_coast(x, projection) - 20000) * 0.5, 20000, 100000)
     R = 6371000
-    stereo_factor = 2/(1+x[:,0]**2/R**2+x[:,1]**2/R**2)
-    return s_coast/stereo_factor
+    stereo_factor = 2 / (1 + x[:, 0] ** 2 / R**2 + x[:, 1] ** 2 / R**2)
+    return s_coast / stereo_factor
 
 
 coarse = seamsh.geometry.coarsen_boundaries(domain, (0, 0), domain_srs, mesh_size)

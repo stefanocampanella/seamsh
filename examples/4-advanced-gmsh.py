@@ -11,6 +11,7 @@
 import os
 import urllib.request
 import tarfile
+
 if not os.path.isdir("data"):
     url = "https://nextcloud.cism.ucl.ac.be/s/e7daeWsMpormjpz/download/data-test-1.tar.gz"
     urllib.request.urlretrieve(url, "data-test-1.tar.gz")
@@ -27,22 +28,20 @@ from osgeo import osr
 domain_srs = osr.SpatialReference()
 domain_srs.ImportFromProj4("+proj=utm +ellps=WGS84 +zone=31")
 domain = seamsh.geometry.Domain(domain_srs)
-domain.add_boundary_curves_shp("data/data_no_duplicate.shp",
-                               "physical", CurveType.POLYLINE)
+domain.add_boundary_curves_shp("data/data_no_duplicate.shp", "physical", CurveType.POLYLINE)
 
 dist_coast = seamsh.field.Distance(domain, 100, ["coast", "island"])
 dist_porquerolles = seamsh.field.Distance(domain, 20, ["porquerolles"])
 
 
 def mesh_size(x, projection):
-    s_coast = np.clip((dist_coast(x, projection)-400)*0.5, 200, 5000)
-    s_porq = np.clip((dist_porquerolles(x, projection)-200)*0.5, 50, 5000)
+    s_coast = np.clip((dist_coast(x, projection) - 400) * 0.5, 200, 5000)
+    s_porq = np.clip((dist_porquerolles(x, projection) - 200) * 0.5, 50, 5000)
     s_dist = np.minimum(s_coast, s_porq)
     return s_dist
 
 
-coarse = seamsh.geometry.coarsen_boundaries(domain, (8e5, 4.68e6),
-                                            domain_srs, mesh_size)
+coarse = seamsh.geometry.coarsen_boundaries(domain, (8e5, 4.68e6), domain_srs, mesh_size)
 
 # %%
 # The gmsh options are set. The full list of gmsh mesh options can be found in

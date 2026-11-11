@@ -28,6 +28,7 @@ from .gmsh import _curve_sample
 
 logger = logging.getLogger(__name__)
 
+
 class Distance:
     """Callable evaluating the distance to a set of discretized curves.
 
@@ -35,8 +36,13 @@ class Distance:
     closest point is computed.
     """
 
-    def __init__(self, domain: _Domain, sampling: float,
-                 tags: _tools.List[str] = None, projection: _tools.osr.SpatialReference = None):
+    def __init__(
+        self,
+        domain: _Domain,
+        sampling: float,
+        tags: _tools.List[str] = None,
+        projection: _tools.osr.SpatialReference = None,
+    ):
         """
         Args:
             domain: a Domain object containing the set of curves
@@ -55,7 +61,9 @@ class Distance:
             return _tools.np.full([x.shape[0]], sampling)
 
         icurve = 0
-        for curve in tqdm.tqdm(all_curves_iter, desc="(seamsh) Sampling features for distance computation"):
+        for curve in tqdm.tqdm(
+            all_curves_iter, desc="(seamsh) Sampling features for distance computation"
+        ):
             if (tags is None) or (curve.tag in tags):
                 points.append(_curve_sample(curve, size, self._projection))
                 icurve += 1
@@ -67,9 +75,9 @@ class Distance:
         logger.info("Build KDTree with %d points", points.shape[0])
         self._tree = _tools.cKDTree(points)
 
-    def __call__(self, x: _tools.np.ndarray,
-                 projection: _tools.osr.SpatialReference
-                 ) -> _tools.np.ndarray:
+    def __call__(
+        self, x: _tools.np.ndarray, projection: _tools.osr.SpatialReference
+    ) -> _tools.np.ndarray:
         """Computes the distance between each point of x and the curves.
 
         Args:
@@ -82,7 +90,7 @@ class Distance:
         """
         if not projection.IsSame(self._projection):
             x = _tools.project_points(x, projection, self._projection)
-        x = x[:, :self._projection.GetAxesCount()]
+        x = x[:, : self._projection.GetAxesCount()]
         return self._tree.query(x)[0]
 
 
@@ -104,9 +112,9 @@ class Raster:
         if self._projection.IsSame(_tools.osr.SpatialReference()):
             logger.warning("Raster used has no spatial reference. Be sure to define one manually.")
 
-    def __call__(self, x: _tools.np.ndarray,
-                 projection: _tools.osr.SpatialReference
-                 ) -> _tools.np.ndarray:
+    def __call__(
+        self, x: _tools.np.ndarray, projection: _tools.osr.SpatialReference
+    ) -> _tools.np.ndarray:
         """Evaluates the field value on each point of x.
 
         Keyword arguments:
@@ -118,20 +126,18 @@ class Raster:
         x = _tools.project_points(x, projection, self._projection)
         gm = self._geo_matrix
         lon, lat = x[:, 0], x[:, 1]
-        det = gm[5]*gm[1]-gm[2]*gm[4]
-        pixx = ((lon-gm[0])*gm[5]-(lat-gm[3])*gm[2])/det
-        pixy = ((lat-gm[3])*gm[1]-(lon-gm[0])*gm[4])/det
-        pixy = _tools.np.clip(pixy.astype(int),0,self._data.shape[0]-1)
-        pixx = _tools.np.clip(pixx.astype(int),0,self._data.shape[1]-1)
+        det = gm[5] * gm[1] - gm[2] * gm[4]
+        pixx = ((lon - gm[0]) * gm[5] - (lat - gm[3]) * gm[2]) / det
+        pixy = ((lat - gm[3]) * gm[1] - (lon - gm[0]) * gm[4]) / det
+        pixy = _tools.np.clip(pixy.astype(int), 0, self._data.shape[0] - 1)
+        pixx = _tools.np.clip(pixx.astype(int), 0, self._data.shape[1] - 1)
         return self._data[pixy, pixx]
 
+
 class Inpoly:
-    """Callable evaluating the membership to a set of polygons
+    """Callable evaluating the membership to a set of polygons"""
 
-    """
-
-    def __init__(self, domain: _Domain,
-                 tags: _tools.List[str] = None):
+    def __init__(self, domain: _Domain, tags: _tools.List[str] = None):
         """
         Args:
             domain: a Domain object containing the set of curves
@@ -151,14 +157,14 @@ class Inpoly:
                 if (tags is None) or (l.tag in tags):
                     ptsid = []
                     ptsid.extend(l.pointsid if o else _tools.np.flip(l.pointsid))
-                    assert(ptsid[-1] == ptsid[0])
+                    assert ptsid[-1] == ptsid[0]
                     ptsid = ptsid[:-1]
                     pts = domain._points[ptsid]
                     self._area.append(_tools.shapely.geometry.Polygon(pts))
 
-    def __call__(self, x: _tools.np.ndarray,
-                 projection: _tools.osr.SpatialReference
-                 ) -> _tools.np.ndarray:
+    def __call__(
+        self, x: _tools.np.ndarray, projection: _tools.osr.SpatialReference
+    ) -> _tools.np.ndarray:
         """Indicate for each point of x if it belongs to a set of polygons.
 
         Args:
@@ -180,4 +186,3 @@ class Inpoly:
                     inpoly[i] = xsi.within(polygon)
 
         return inpoly
-

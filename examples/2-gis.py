@@ -9,6 +9,7 @@
 import os
 import urllib.request
 import tarfile
+
 if not os.path.isdir("data2"):
     url = "https://nextcloud.cism.ucl.ac.be/s/TfY6tCzrqiKaTTX/download/data-test-2.tar.gz"
     urllib.request.urlretrieve(url, "data-test-2.tar.gz")
@@ -37,15 +38,13 @@ domain = seamsh.geometry.Domain(domain_srs)
 # In the shapefile, a field named "physical" defines the physical tag of each
 # curve. If a re-projection is required, it will be done automatically.
 
-domain.add_boundary_curves_shp("data2/data_no_duplicate.shp",
-                               "physical", CurveType.POLYLINE)
+domain.add_boundary_curves_shp("data2/data_no_duplicate.shp", "physical", CurveType.POLYLINE)
 
 # %%
 # Interior curves and interior points can be loaded in a similar way.
 # Physical tags are optional
 
-domain.add_interior_curves_shp("data2/interior.shp",
-                               None, CurveType.STRICTPOLYLINE)
+domain.add_interior_curves_shp("data2/interior.shp", None, CurveType.STRICTPOLYLINE)
 domain.add_interior_points_shp("data2/interior_points.shp", "physical")
 
 # %%
@@ -76,9 +75,10 @@ dist_porquerolles = seamsh.field.Distance(domain, 20, ["porquerolles"])
 # The mesh size is defined based on those fields, smaller elements are
 # prescribed around the Porquerolles island.
 
+
 def mesh_size(x, projection):
-    s_coast = np.clip((dist_coast(x, projection)-400)*0.5, 200, 5000)
-    s_porq = np.clip((dist_porquerolles(x, projection)-200)*0.5, 50, 5000)
+    s_coast = np.clip((dist_coast(x, projection) - 400) * 0.5, 200, 5000)
+    s_porq = np.clip((dist_porquerolles(x, projection) - 200) * 0.5, 50, 5000)
     s_dist = np.minimum(s_coast, s_porq)
     return s_dist
 
@@ -101,8 +101,9 @@ def mesh_size(x, projection):
 output_srs = osr.SpatialReference()
 output_srs.ImportFromProj4("+proj=latlon +ellps=WGS84")
 
-seamsh.gmsh.mesh(domain, "gis_mesh.msh", mesh_size,
-                 intermediate_file_name="debug", output_srs=output_srs)
+seamsh.gmsh.mesh(
+    domain, "gis_mesh.msh", mesh_size, intermediate_file_name="debug", output_srs=output_srs
+)
 
 seamsh.gmsh.reproject("gis_mesh.msh", None, "gis_mesh_lonlat.msh", output_srs)
 

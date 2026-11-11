@@ -33,14 +33,16 @@ from enum import Enum
 import platform
 import ctypes as c
 
-try :
+try:
     import xarray as xr
+
     xarray_available = True
 except:
     xarray_available = False
 
-try :
+try:
     import shapely.geometry
+
     shapely_available = True
 except:
     shapely_available = False
@@ -50,14 +52,14 @@ _transform_cache = {}
 
 
 def project_points(x, pfrom, pto):
-    x = np.asarray(x)[:, :pfrom.GetAxesCount()]
+    x = np.asarray(x)[:, : pfrom.GetAxesCount()]
     if not pfrom.IsSame(pto):
         trans = _transform_cache.get((pfrom, pto), None)
         if trans is None:
             trans = osr.CoordinateTransformation(pfrom, pto)
             _transform_cache[(pfrom, pto)] = trans
         x = trans.TransformPoints(x)
-        x = np.asarray(x)[:, :pto.GetAxesCount()]
+        x = np.asarray(x)[:, : pto.GetAxesCount()]
     return x
 
 
@@ -66,11 +68,13 @@ libpath = os.path.join(libdir, "libseamsh.so")
 
 lib = c.CDLL(libpath)
 
+
 def npfrombuffer(buf, dtype):
     if hasattr(np, "frombuffer"):
         return np.frombuffer(buf, dtype)
     else:
         return np.ctypeslib.frombuffer(buf, dtype)
+
 
 def np2c(a, dtype=np.float64):
     tmp = np.require(a, dtype, "C")
@@ -86,12 +90,9 @@ class PolyMesh:
         self._n = 0
 
     def add_points(self, v):
-        tags = np.arange(self._n, self._n+v.shape[0], dtype=np.int32)
+        tags = np.arange(self._n, self._n + v.shape[0], dtype=np.int32)
         self._n += v.shape[0]
-        lib.polymesh_add_points(
-                self._ptr,
-                c.c_int(v.shape[0]),
-                np2c(v), np2c(tags, np.int32))
+        lib.polymesh_add_points(self._ptr, c.c_int(v.shape[0]), np2c(v), np2c(tags, np.int32))
 
     def get_triangles(self):
         lib.polymesh_n_faces.restype = c.c_int
