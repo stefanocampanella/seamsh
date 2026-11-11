@@ -44,7 +44,7 @@ seamsh = ["*.so"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # Import seamsh from the source tree (needs `python setup.py build_ext --inplace` first).
-pythonpath = ["."]
+pythonpath = [".", "tests"]
 
 [tool.ruff]
 line-length = 100
@@ -52,6 +52,8 @@ extend-exclude = ["refactoring-kit", "doc/conf.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "C4", "SIM"]
+# Line length is the formatter's business; it leaves long comments and docstrings alone.
+ignore = ["E501"]
 
 [tool.codespell]
 skip = "seamshlib/polymesh.c,seamshlib/polymesh.h,seamshlib/robustPredicates.c,seamshlib/robustPredicates.h,seamshlib/qsort.h,seamshlib/vector.h,COPYING.txt,refactoring-kit,tests/data,build,*.msh"
