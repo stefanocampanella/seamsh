@@ -55,5 +55,9 @@ select = ["E", "F", "W", "I", "B", "UP", "C4", "SIM"]
 # Line length is the formatter's business; it leaves long comments and docstrings alone.
 ignore = ["E501"]
 
+[tool.ruff.lint.per-file-ignores]
+# The examples are tutorials: they fetch their data before importing seamsh.
+"examples/*" = ["E402", "SIM115"]
+
 [tool.codespell]
-skip = "seamshlib/polymesh.c,seamshlib/polymesh.h,seamshlib/robustPredicates.c,seamshlib/robustPredicates.h,seamshlib/qsort.h,seamshlib/vector.h,COPYING.txt,refactoring-kit,tests/data,build,*.msh"
+skip = "seamshlib/polymesh.c,seamshlib/polymesh.h,seamshlib/robustPredicates.c,seamshlib/robustPredicates.h,seamshlib/qsort.h,seamshlib/vector.h,COPYING.txt,AUTHORS.txt,refactoring-kit,tests/data,build,*.msh"

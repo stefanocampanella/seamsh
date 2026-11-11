@@ -10,8 +10,8 @@
 # This example starts as the previous one.
 
 import os
-import urllib.request
 import tarfile
+import urllib.request
 
 if not os.path.isdir("data2"):
     url = "https://nextcloud.cism.ucl.ac.be/s/TfY6tCzrqiKaTTX/download/data-test-2.tar.gz"
@@ -19,11 +19,18 @@ if not os.path.isdir("data2"):
     f = tarfile.open("data-test-2.tar.gz", "r:*")
     f.extractall()
 
-import seamsh
-from seamsh.geometry import CurveType
-import seamsh.geometry
+import gmsh
 import numpy as np
-from osgeo import osr
+from osgeo import gdal, osr
+
+import seamsh
+import seamsh.geometry
+from seamsh.geometry import CurveType
+
+# %%
+# seamsh drives gmsh, which has to be initialized first.
+
+gmsh.initialize()
 
 domain_srs = osr.SpatialReference()
 domain_srs.ImportFromProj4("+proj=utm +ellps=WGS84 +zone=31")
@@ -35,7 +42,7 @@ domain.add_boundary_curves_shp("data2/data_no_duplicate.shp", "physical", CurveT
 domain.add_interior_curves_shp("data2/interior.shp", None, CurveType.STRICTPOLYLINE)
 domain.add_interior_points_shp("data2/interior_points.shp", "physical")
 
-bath_field = seamsh.field.Raster("data2/medit.tiff")
+bath_field = seamsh.field.Raster(gdal.Open("data2/medit.tiff"))
 
 domain_poly.add_boundary_curves_shp("data2/area_utm31.gpkg", "name", CurveType.POLYLINE)
 
@@ -57,9 +64,8 @@ def mesh_size(x, projection):
 output_srs = osr.SpatialReference()
 output_srs.ImportFromProj4("+proj=latlon +ellps=WGS84")
 
-seamsh.gmsh.mesh(
-    domain, "gis_mesh.msh", mesh_size, intermediate_file_name="debug", output_srs=output_srs
-)
+seamsh.gmsh.mesh(domain, mesh_size, output_srs=output_srs)
+gmsh.write("gis_mesh.msh")
 
 
 seamsh.gmsh.convert_to_gis("gis_mesh.msh", output_srs, "gis_mesh.gpkg")

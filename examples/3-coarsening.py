@@ -21,8 +21,8 @@
 # This example starts as the previous one.
 
 import os
-import urllib.request
 import tarfile
+import urllib.request
 
 if not os.path.isdir("data"):
     url = "https://nextcloud.cism.ucl.ac.be/s/e7daeWsMpormjpz/download/data-test-1.tar.gz"
@@ -30,11 +30,18 @@ if not os.path.isdir("data"):
     f = tarfile.open("data-test-1.tar.gz", "r:*")
     f.extractall()
 
-import seamsh
-from seamsh.geometry import CurveType
-import seamsh.geometry
+import gmsh
 import numpy as np
 from osgeo import osr
+
+import seamsh
+import seamsh.geometry
+from seamsh.geometry import CurveType
+
+# %%
+# seamsh drives gmsh, which has to be initialized first.
+
+gmsh.initialize()
 
 lonlat = osr.SpatialReference()
 lonlat.ImportFromProj4("+proj=latlong +ellps=WGS84 +unit=degrees")
@@ -75,4 +82,5 @@ coarse = seamsh.geometry.coarsen_boundaries(domain, (6.21, 42.95), lonlat, mesh_
 # %%
 # The resulting coarsened domain can be meshed normally.
 
-seamsh.gmsh.mesh(coarse, "coarse_boundary_mesh.msh", mesh_size)
+seamsh.gmsh.mesh(coarse, mesh_size)
+gmsh.write("coarse_boundary_mesh.msh")

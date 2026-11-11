@@ -7,8 +7,8 @@
 # Let's download some data.
 
 import os
-import urllib.request
 import tarfile
+import urllib.request
 
 if not os.path.isdir("data2"):
     url = "https://nextcloud.cism.ucl.ac.be/s/TfY6tCzrqiKaTTX/download/data-test-2.tar.gz"
@@ -19,11 +19,18 @@ if not os.path.isdir("data2"):
 # %%
 # The actual example starts here.
 
-import seamsh
-from seamsh.geometry import CurveType
-import seamsh.geometry
+import gmsh
 import numpy as np
-from osgeo import osr
+from osgeo import gdal, osr
+
+import seamsh
+import seamsh.geometry
+from seamsh.geometry import CurveType
+
+# %%
+# seamsh drives gmsh, which has to be initialized first.
+
+gmsh.initialize()
 
 # %%
 # First, let's create a domain object and its associated projection.
@@ -50,9 +57,9 @@ domain.add_interior_points_shp("data2/interior_points.shp", "physical")
 # %%
 # Seamsh provides helper classes to compute the element size field.
 #
-# field.Raster allows to load geotiff files (or any gdal raster file).
+# field.Raster evaluates a gdal raster dataset (e.g. a geotiff file).
 
-bath_field = seamsh.field.Raster("data2/medit.tiff")
+bath_field = seamsh.field.Raster(gdal.Open("data2/medit.tiff"))
 
 # %%
 # field.Distance can be used to compute the distance from given (tagged)
@@ -93,17 +100,14 @@ def mesh_size(x, projection):
 #     return  s_bath*10
 
 # %%
-# The "intermediate_file_name" option is used to save files containing
-# intermediate meshes and mesh size fields. If this parameter takes the
-# special value "-" an interactive gmsh graphical window will pop up
-# after each meshing step.
+# The mesh is generated in the current gmsh model, in the coordinate system
+# "output_srs", then written to a file by gmsh.
 
 output_srs = osr.SpatialReference()
 output_srs.ImportFromProj4("+proj=latlon +ellps=WGS84")
 
-seamsh.gmsh.mesh(
-    domain, "gis_mesh.msh", mesh_size, intermediate_file_name="debug", output_srs=output_srs
-)
+seamsh.gmsh.mesh(domain, mesh_size, output_srs=output_srs)
+gmsh.write("gis_mesh.msh")
 
 seamsh.gmsh.reproject("gis_mesh.msh", None, "gis_mesh_lonlat.msh", output_srs)
 

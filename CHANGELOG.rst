@@ -1,5 +1,16 @@
 Changes
 =======
+seamsh 0.5.0
+------------
+* coarsen_boundaries no longer hangs on boundaries made of straight lines, keeps both tags of points shared by two curves and leaves numpy's global random state alone
+* errors of the C library are raised as Python exceptions instead of ending the process
+* outlines of islands smaller than the mesh size are no longer written to the mesh file (they were boundary elements on nodes that belong to no triangle)
+* the view and field used for the mesh size are removed from gmsh after meshing
+* a mesh size that is zero, negative or NaN raises an error instead of looping forever
+* the mesh size is scaled correctly along curves given in a projected coordinate system (in metres)
+* convert_to_gis and convert_to_ugrid_mesh_file work again
+* tests (pytest), pyproject.toml, examples and documentation updated to the current API (mesh works on the current gmsh model, Raster takes a gdal dataset)
+
 seamsh 0.4.18
 -------------
 * adjust epsilons to domain size
@@ -39,7 +50,7 @@ seamsh 0.4.10
 -------------
 * add gmsh.merge_meshes
 * add transifinite curves (physical lines with prescribed number of elements)
-* avoid gmsh initalization error message
+* avoid gmsh initialization error message
 
 seamsh 0.4.9
 ------------

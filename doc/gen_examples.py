@@ -1,19 +1,22 @@
-import glob
-import shutil
-import os
+"""Converts the example scripts (../examples/*.py) into reStructuredText pages (examples/*.rst).
 
-try:
-    shutil.rmtree("examples")
-except:
-    pass
+In the scripts, a line "# %%" starts a block of text, written as comments and ended by an empty
+line; everything else is code.
+"""
+
+import glob
+import os
+import shutil
+
+shutil.rmtree("examples", ignore_errors=True)
 os.makedirs("examples")
 
 for filename in glob.glob("../examples/*.py"):
     inrst = True
-    with open(filename, "r") as f:
+    with open(filename) as f:
         bname = os.path.basename(filename)[:-3]
         with open("examples/" + bname + ".rst", "w") as fout:
-            fout.write("Download :download:`this example <../%s>`.\n" % filename)
+            fout.write(f"Download :download:`this example <../{filename}>`.\n")
             for i, line in enumerate(f):
                 line = line[:-1]
                 lstrip = line.strip()

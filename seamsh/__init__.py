@@ -18,6 +18,11 @@
 # along with this program (see COPYING file).  If not,
 # see <http://www.gnu.org/licenses/>.
 
-from . import field
-from . import gmsh
-from . import geometry
+"""Unstructured mesh generation from GIS data, on top of gmsh, GDAL and scipy.
+
+`geometry` describes the domain, `field` helps building mesh size fields, `gmsh` meshes.
+"""
+
+from . import field, geometry, gmsh
+
+__all__ = ["field", "geometry", "gmsh"]

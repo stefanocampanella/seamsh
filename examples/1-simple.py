@@ -4,10 +4,17 @@
 # This example illustrates how to insert different types of curves
 # directly from numpy arrays and osr spatial references.
 
-import seamsh
-from seamsh.geometry import CurveType
+import gmsh
 import numpy as np
 from osgeo import osr
+
+import seamsh
+from seamsh.geometry import CurveType
+
+# %%
+# seamsh drives gmsh, which has to be initialized first.
+
+gmsh.initialize()
 
 # %%
 # First,  let's create a domain object and its associated projection.
@@ -92,4 +99,9 @@ def mesh_size(x, projection):
 # %%
 # Finally,  the seamesh.gmsh.mesh function generates the mesh.
 
-seamsh.gmsh.mesh(domain, "basic_geometry.msh", mesh_size, version=2.0)
+seamsh.gmsh.mesh(domain, mesh_size, version=2.0)
+
+# %%
+# The mesh is in the current gmsh model: gmsh writes it to a file.
+
+gmsh.write("basic_geometry.msh")

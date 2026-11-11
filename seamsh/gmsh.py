@@ -18,69 +18,118 @@
 # along with this program (see COPYING file).  If not,
 # see <http://www.gnu.org/licenses/>.
 
+"""Meshing with gmsh, and conversions of the meshes.
+
+gmsh keeps its state in the process: the caller initializes it (`gmsh.initialize()`), `mesh` works
+on the current model, and the caller writes the file (`gmsh.write`).
+"""
+
 import logging
+import os
+import struct
+import uuid
 
 import gmsh
+import numpy as np
 import tqdm.contrib
+from osgeo import ogr, osr
 
 from . import _tools
 from . import geometry as _geometry
 
-__all__ = ["mesh", "convert_to_gis", "reproject"]
+try:
+    import xarray as xr
+
+    xarray_available = True
+except ImportError:
+    xarray_available = False
+
+__all__ = ["mesh", "convert_to_gis", "convert_to_ugrid_mesh_file", "merge_meshes", "reproject"]
 
 logger = logging.getLogger(__name__)
 
 
-def _gmsh_curve_geo(curve_type: _geometry.CurveType, pointsid):
-    pts = list(i + 1 for i in pointsid)
+def _gmsh_curve_geo(curve_type: _geometry.CurveType, pointsid) -> list:
+    """Adds a curve through the points `pointsid` (indices in Domain._points, i.e. gmsh point tags
+    minus one) to the gmsh model and returns the tags of its gmsh curves (one, or one per segment
+    for a STRICTPOLYLINE)."""
+    pts = [i + 1 for i in pointsid]
     if curve_type == _geometry.CurveType.SPLINE:
         return [gmsh.model.geo.addSpline(pts)]
     elif curve_type == _geometry.CurveType.BSPLINE:
         return [gmsh.model.geo.addBSpline(pts)]
     elif curve_type == _geometry.CurveType.STRICTPOLYLINE:
         pairs = zip(pts[:-1], pts[1:])
-        return list(gmsh.model.geo.addLine(p0, p1) for p0, p1 in pairs)
+        return [gmsh.model.geo.addLine(p0, p1) for p0, p1 in pairs]
     elif curve_type == _geometry.CurveType.POLYLINE:
         return [gmsh.model.geo.addPolyline(pts)]
     else:
-        raise ValueError("unknown curve_type '%s'" % curve_type)
+        raise ValueError(f"unknown curve_type '{curve_type}'")
 
 
 def _check_sizes(size):
     """Sampling refines a curve until its segments are shorter than the size: a size that is zero,
     negative or not a number would make it loop forever, or stop without notice."""
-    if not _tools.np.all(size > 0):
+    if not np.all(size > 0):
         raise ValueError("The mesh size callback must return positive numbers")
     return size
 
 
-def _curve_sample_gmsh_tag(tag, lc, projection):
+def _curve_sample_gmsh_tag(tag: int, lc, projection: osr.SpatialReference) -> tuple:
+    """Samples gmsh curve `tag` so that consecutive points are no farther apart than the size.
+
+    Starting from five points, a point is added in the middle (in the parameter of the curve) of
+    every segment longer than the smaller size of its two ends, until none is: the spacing ends up
+    between half the size and the size. (The article integrates 1/size along the curve; this
+    bisection needs only point evaluations of the size.)
+
+    Args:
+        tag: the gmsh curve, in the current model.
+        lc: size callback, called with points in the coordinates of the gmsh model and `projection`.
+    Returns:
+        The points [n, 2], their parameters on the curve [n] and the sizes there [n].
+    """
     bounds = gmsh.model.getParametrizationBounds(1, tag)
-    xi = _tools.np.linspace(bounds[0][0], bounds[1][0], 5)
+    xi = np.linspace(bounds[0][0], bounds[1][0], 5)
     x = gmsh.model.getValue(1, tag, xi).reshape([-1, 3])
     size = _check_sizes(lc(x, projection))
     while True:
-        dist = _tools.np.linalg.norm(x[1:, :] - x[:-1, :], axis=1)
-        target = _tools.np.minimum(size[1:], size[:-1])
-        if not _tools.np.any(target < dist):
+        dist = np.linalg.norm(x[1:, :] - x[:-1, :], axis=1)
+        target = np.minimum(size[1:], size[:-1])
+        too_long = target < dist
+        if not np.any(too_long):
             break
-        exi = (xi[1:][target < dist] + xi[:-1][target < dist]) / 2
-        ex = gmsh.model.getValue(1, tag, exi).reshape([-1, 3])
-        esize = _check_sizes(lc(ex, projection))
-        xi = _tools.np.hstack([xi, exi])
-        s = _tools.np.argsort(xi)
-        xi = xi[s]
-        x = _tools.np.vstack([x, ex])[s, :]
-        size = _tools.np.hstack([size, esize])[s]
+        new_xi = (xi[1:][too_long] + xi[:-1][too_long]) / 2
+        new_x = gmsh.model.getValue(1, tag, new_xi).reshape([-1, 3])
+        new_size = _check_sizes(lc(new_x, projection))
+        xi = np.hstack([xi, new_xi])
+        order = np.argsort(xi)
+        xi = xi[order]
+        x = np.vstack([x, new_x])[order, :]
+        size = np.hstack([size, new_size])[order]
     return x[:, :2], xi, size
 
 
 class _lcproj:
-    def __init__(self, lc, proj):
+    """A size callback seen from another projection.
+
+    Curves are sampled in their own projection (e.g. longitude and latitude), while sizes are
+    lengths in the projection of the domain. This wraps a size callback `lc` of the domain so that
+    it takes points in the curve's projection `proj` and returns sizes in the units of `proj`: the
+    size divided by the local scale of the transformation, as for the stereographic plane in
+    Lambrechts et al. 2008, section 3.1 (exact for conformal transformations).
+    """
+
+    def __init__(self, lc, proj: osr.SpatialReference):
         self.lc = lc
         self.projection = proj
 
-    def __call__(self, x, projection):
+    def __call__(self, x: np.ndarray, projection: osr.SpatialReference) -> np.ndarray:
+        """
+        Args:
+            x: points in the curve's projection.
+            projection: the projection of the domain, in which `lc` is called.
+        """
         xlc = _tools.project_points(x, self.projection, projection)
         slc = self.lc(xlc, projection)
         if self.projection.IsSame(projection):
@@ -89,36 +138,43 @@ class _lcproj:
         # when the point moves by (eps, eps). The step is 1e-8 for coordinates up to about a
         # thousand (degrees), and grows in proportion beyond (metres), where 1e-8 would be lost in
         # the rounding of the coordinates.
-        eps = max(1e-8, 1e-11 * float(_tools.np.abs(x).max()))
-        x2 = _tools.np.copy(x)
+        eps = max(1e-8, 1e-11 * float(np.abs(x).max()))
+        x2 = np.copy(x)
         x2[:, : projection.GetAxesCount()] += eps
         xlc2 = _tools.project_points(x2, self.projection, projection)
-        enorm = _tools.np.hypot(eps, eps)
-        h = _tools.np.linalg.norm(xlc2 - xlc, axis=1) / enorm
+        enorm = np.hypot(eps, eps)
+        h = np.linalg.norm(xlc2 - xlc, axis=1) / enorm
         return slc / h
 
 
-def _curve_sample(curve, lc, projection):
+def _curve_sample(curve, lc, projection: osr.SpatialReference) -> np.ndarray:
+    """Points [n, 2] along `curve`, in `projection`, no farther apart than the size given by the
+    callback `lc` (called with points in `projection`)."""
     # The curve is built in a temporary gmsh model; the caller's model is made current again.
     current_model = gmsh.model.getCurrent()
-    gmsh.model.add(str(_tools.uuid.uuid4()))
+    gmsh.model.add(str(uuid.uuid4()))
     try:
-        tags = list([gmsh.model.geo.addPoint(*x, 0) - 1 for x in curve.points[:-1, :]])
-        if _tools.np.linalg.norm(curve.points[0, :] - curve.points[-1, :]) < 1e-8:
-            tags.append(tags[0])
+        tags = [gmsh.model.geo.addPoint(*x, 0) - 1 for x in curve.points[:-1, :]]
+        if np.linalg.norm(curve.points[0, :] - curve.points[-1, :]) < 1e-8:
+            tags.append(tags[0])  # a closed curve
         else:
             tags.append(gmsh.model.geo.addPoint(*curve.points[-1, :], 0) - 1)
-        ltag = _gmsh_curve_geo(curve.curve_type, tags)
+        curve_tags = _gmsh_curve_geo(curve.curve_type, tags)
         gmsh.model.geo.synchronize()
-        plc = _lcproj(lc, curve.projection)
-        r = _curve_sample_gmsh_tag(ltag[0], plc, projection)[0]
+        samples = _curve_sample_gmsh_tag(curve_tags[0], _lcproj(lc, curve.projection), projection)[
+            0
+        ]
     finally:
         gmsh.model.remove()
         gmsh.model.setCurrent(current_model)
-    return _tools.project_points(r, curve.projection, projection)
+    return _tools.project_points(samples, curve.projection, projection)
 
 
-def _create_gmsh_geometry(domain: _geometry.Domain):
+def _create_gmsh_geometry(domain: _geometry.Domain) -> None:
+    """Builds the geometry of `domain` (after `_build_topology`) in the current gmsh model: its
+    points, curves, one plane surface bounded by the curve loops, the interior curves and points
+    embedded in it, and the physical groups: one per curve or point tag, and "domain" for the
+    surface."""
     logger.info("Build gmsh model")
     gmsh.option.setNumber("Mesh.CharacteristicLengthFromPoints", 0)
     gmsh.option.setNumber("Mesh.LcIntegrationPrecision", 1e-5)
@@ -126,45 +182,52 @@ def _create_gmsh_geometry(domain: _geometry.Domain):
     gmsh.option.setNumber("Mesh.CharacteristicLengthFromCurvature", 0)
     gmsh.option.setNumber("Mesh.CharacteristicLengthExtendFromBoundary", 0)
     gmsh.option.setNumber("Mesh.CharacteristicLengthFromParametricPoints", 1)
-    ctags = []
-    cltag = []
-    physicals = {}
+    curve_groups = {}  # physical tag -> gmsh curves
     for i, x in enumerate(domain._points):
         gmsh.model.geo.addPoint(*x, 0, tag=i + 1)
-    for cl in domain._curveloops:
-        ctag = []
-        for i, (l, o) in enumerate(cl):
-            curve = domain._curves[l]
+    loop_tags = []
+    for loop in domain._curveloops:
+        loop_curves = []
+        for curve_index, forward in loop:
+            curve = domain._curves[curve_index]
             tags = _gmsh_curve_geo(curve.curve_type, curve.pointsid)
-            physicals.setdefault(curve.tag, []).extend(tags)
-            ctag.extend(tags if o else list(-t for t in reversed(tags)))
-        cltag.append(gmsh.model.geo.addCurveLoop(ctag))
-        ctags += ctag
-    stag = gmsh.model.geo.addPlaneSurface(cltag)
-    embeded = []
+            curve_groups.setdefault(curve.tag, []).extend(tags)
+            # gmsh takes a curve backwards when its tag is negative.
+            loop_curves.extend(tags if forward else [-t for t in reversed(tags)])
+        loop_tags.append(gmsh.model.geo.addCurveLoop(loop_curves))
+    # The first loop is the outer boundary, the others are holes.
+    surface = gmsh.model.geo.addPlaneSurface(loop_tags)
+    embedded = []
     for curve in domain._interior_curves:
         tags = _gmsh_curve_geo(curve.curve_type, curve.pointsid)
-        embeded.extend(tags)
-        physicals.setdefault(curve.tag, []).extend(tags)
-    physicalspt = {}
+        embedded.extend(tags)
+        curve_groups.setdefault(curve.tag, []).extend(tags)
+    point_groups = {}  # physical tag -> gmsh points
     for point in domain._interior_points:
-        physicalspt.setdefault(point.tag, []).append(point.pointid + 1)
+        point_groups.setdefault(point.tag, []).append(point.pointid + 1)
     gmsh.model.geo.synchronize()
-    gmsh.model.mesh.embed(1, embeded, 2, stag)
-    gmsh.model.mesh.embed(0, [p.pointid + 1 for p in domain._interior_points], 2, stag)
-    for name, tags in physicals.items():
+    gmsh.model.mesh.embed(1, embedded, 2, surface)
+    gmsh.model.mesh.embed(0, [p.pointid + 1 for p in domain._interior_points], 2, surface)
+    for name, tags in curve_groups.items():
         tag = gmsh.model.addPhysicalGroup(1, tags)
         gmsh.model.setPhysicalName(1, tag, name)
-    for name, tags in physicalspt.items():
+    for name, tags in point_groups.items():
         tag = gmsh.model.addPhysicalGroup(0, tags)
         gmsh.model.setPhysicalName(0, tag, name)
-    tag = gmsh.model.addPhysicalGroup(2, [stag])
+    tag = gmsh.model.addPhysicalGroup(2, [surface])
     gmsh.model.setPhysicalName(2, tag, "domain")
 
 
-def _mesh_bgrid(domain: _geometry.Domain, mesh_size: _geometry.MeshSizeCallback, smoothness: float):
+def _mesh_bgrid(
+    domain: _geometry.Domain, mesh_size: _geometry.MeshSizeCallback, smoothness: float
+) -> None:
+    """Meshes the current model with the mesh size given to gmsh on a background mesh.
+
+    The size is evaluated on the nodes of a triangulation of the bounding box of the domain:
+    a 100 x 100 grid, refined where the size is small, on which the size is limited so that it grows
+    by at most `smoothness` per unit of distance. gmsh interpolates the size in these triangles.
+    """
     logger.info("Build mesh size field")
-    np = _tools.np
     x0 = np.min(domain._points, axis=0)
     x1 = np.max(domain._points, axis=0)
     d = np.max(x1 - x0) / 100
@@ -178,6 +241,7 @@ def _mesh_bgrid(domain: _geometry.Domain, mesh_size: _geometry.MeshSizeCallback,
     while True:
         xyz = np.c_[xy.reshape(-1, 2), np.zeros((xy.size // 2, 1))]
         tri = poly.get_triangles()
+        # The edges of the triangles, each once: pairs of nodes packed in one integer to sort them.
         edges = np.r_[tri[:, [0, 1]], tri[:, [1, 2]], tri[:, [2, 0]]]
         edges.sort(axis=1)
         shift = 2**32
@@ -186,6 +250,9 @@ def _mesh_bgrid(domain: _geometry.Domain, mesh_size: _geometry.MeshSizeCallback,
         edges = np.c_[ekey // shift, ekey % shift]
         dedges = xy[edges[:, 0]] - xy[edges[:, 1]]
         elength = np.hypot(dedges[:, 0], dedges[:, 1])
+        # Smoothing: along each edge, the size at one end is at most the size at the other end plus
+        # smoothness x length. Repeated until no size changes by 1 or more (an absolute tolerance,
+        # in the units of the projection: fine for sizes in metres).
         while True:
             vo = v.copy()
             cond = v[edges[:, 0]] > v[edges[:, 1]] + elength * smoothness
@@ -194,6 +261,8 @@ def _mesh_bgrid(domain: _geometry.Domain, mesh_size: _geometry.MeshSizeCallback,
             v[edges[cond, 1]] = v[edges[cond, 0]] + elength[cond] * smoothness
             if np.max(np.abs(v - vo)) < 1:
                 break
+        # Refinement: an edge more than twice as long as the smaller size at its ends is cut in
+        # two, so that the background mesh resolves the variations of the size.
         eminsize = np.minimum(v[edges[:, 0]], v[edges[:, 1]])
         tocut = np.where(eminsize * 2 < elength)[0]
         if tocut.size == 0:
@@ -202,6 +271,7 @@ def _mesh_bgrid(domain: _geometry.Domain, mesh_size: _geometry.MeshSizeCallback,
         xy = np.r_[xy, newp]
         v = np.r_[v, mesh_size(newp, domain._projection)]
         poly.add_points(newp)
+    # A gmsh view of scalar triangles ("ST": 9 coordinates and 3 values each), used as size field.
     xtri = xyz[tri]
     data = np.c_[xtri.swapaxes(1, 2).reshape(-1, 9), v.flatten()[tri]]
     view = gmsh.view.add("tri")
@@ -227,19 +297,21 @@ def _mesh_successive(
     domain: _geometry.Domain,
     mesh_size: _geometry.MeshSizeCallback,
     intermediate_file_name: str = None,
-):
+) -> None:
+    """Meshes the current model without smoothing the mesh size: the size is set on the curves, the
+    curves are meshed, then the surface is meshed with a uniform size and remeshed three times, each
+    time with the size evaluated on the nodes of the previous mesh."""
     for curve in domain._curves:
         curve.mesh_size = mesh_size(curve.points, domain._projection)
 
     # 1D mesh
-    for icurve, (dim, tag) in tqdm.contrib.tenumerate(
-        gmsh.model.getEntities(1), desc="(seamsh) Sample curves for mesh size"
-    ):
+    curves = gmsh.model.getEntities(1)
+    for dim, tag in tqdm.tqdm(curves, desc="(seamsh) Sample curves for mesh size"):
         _, xi, size = _curve_sample_gmsh_tag(
             tag, lambda x, p: mesh_size(x, p) / 2, domain._projection
         )
         gmsh.model.mesh.setSizeAtParametricPoints(dim, tag, xi, size * 2)
-    logger.info("%d curve sampled", icurve + 1)
+    logger.info("%d curve sampled", len(curves))
     logger.info("Generate 1D mesh")
     gmsh.model.mesh.generate(1)
     if intermediate_file_name is not None:
@@ -247,12 +319,12 @@ def _mesh_successive(
             gmsh.fltk.run()
         else:
             gmsh.write(intermediate_file_name + "_1d.msh")
-    # 2D mesh ##
+    # 2D mesh
     logger.info("Generate initial 2D mesh")
-    _, x, u = gmsh.model.mesh.getNodes()
+    _, x, _ = gmsh.model.mesh.getNodes()
     x = x.reshape([-1, 3])
-    domain_size = _tools.np.max(x, axis=0) - _tools.np.min(x, axis=0)
-    initlc = _tools.np.linalg.norm(domain_size) / 100
+    domain_size = np.max(x, axis=0) - np.min(x, axis=0)
+    initlc = np.linalg.norm(domain_size) / 100
     gmsh.option.setNumber("Mesh.CharacteristicLengthFromParametricPoints", 0)
     gmsh.option.setNumber("Mesh.CharacteristicLengthMin", initlc)
     gmsh.option.setNumber("Mesh.CharacteristicLengthMax", initlc)
@@ -266,16 +338,15 @@ def _mesh_successive(
         logger.info("Generate refined 2D mesh (pass %d/%d)", i + 1, nadapt)
         node_tags, node_x, _ = gmsh.model.mesh.getNodes(-1, -1)
         node_x = node_x.reshape([-1, 3])
-        nodes_map = dict({tag: i for i, tag in enumerate(node_tags)})
+        nodes_map = {tag: i for i, tag in enumerate(node_tags)}
         sf_view = gmsh.view.add("mesh size field")
         node_lc = mesh_size(node_x, domain._projection)
-        etypes, etags, enodes = gmsh.model.mesh.getElements(2, -1)
+        etypes, _, enodes = gmsh.model.mesh.getElements(2, -1)
         for etype, enode in zip(etypes, enodes):
             nn = 3 if etype == 2 else 4
-            enode = list(nodes_map[t] for t in enode)
-            enode = _tools.np.array(enode).reshape([-1, nn])
+            enode = np.array([nodes_map[t] for t in enode]).reshape([-1, nn])
             xnode = node_x[enode, :].swapaxes(1, 2).reshape([-1, nn * 3])
-            data = _tools.np.column_stack([xnode, node_lc[enode]])
+            data = np.column_stack([xnode, node_lc[enode]])
             gmsh.view.addListData(
                 sf_view, "ST" if etype == 2 else "SQ", enode.shape[0], data.reshape([-1])
             )
@@ -300,14 +371,14 @@ def _drop_curves_outside_the_mesh():
     mesh), but it writes only the elements of physical groups.
     """
     surface_nodes = gmsh.model.mesh.getElements(2)[2]
-    used = set(_tools.np.concatenate(surface_nodes).tolist()) if surface_nodes else set()
+    used = set(np.concatenate(surface_nodes).tolist()) if surface_nodes else set()
     n_dropped = 0
     for dim, group in gmsh.model.getPhysicalGroups(1):
         curves = gmsh.model.getEntitiesForPhysicalGroup(dim, group)
         kept = []
         for curve in curves:
             curve_nodes = gmsh.model.mesh.getElements(dim, int(curve))[2]
-            nodes = _tools.np.concatenate(curve_nodes).tolist() if curve_nodes else []
+            nodes = np.concatenate(curve_nodes).tolist() if curve_nodes else []
             if used.intersection(nodes):
                 kept.append(int(curve))
         if len(kept) == len(curves):
@@ -323,10 +394,12 @@ def _drop_curves_outside_the_mesh():
 
 
 def _reproject(input_srs, output_srs):
+    """Moves the nodes (and points) of the current model from `input_srs` (None: the projection
+    stored in the model) to `output_srs`."""
     if input_srs is None:
         p = gmsh.model.get_attribute("Projection")
         if len(p) == 2 and p[0] == "WKT":
-            input_srs = _tools.osr.SpatialReference()
+            input_srs = osr.SpatialReference()
             input_srs.ImportFromWkt(p[1])
     ntags, nx, _ = gmsh.model.mesh.get_nodes()
     nx = nx.reshape(-1, 3)
@@ -354,26 +427,35 @@ def mesh(
     version: float = 4.1,
     intermediate_file_name: str = None,
     smoothness=0.3,
-    output_srs: _tools.osr.SpatialReference = None,
+    output_srs: osr.SpatialReference = None,
     transfinite_curves: dict = None,
     quad: bool = False,
 ) -> None:
-    """Calls gmsh to generate a mesh from a geometry and a mesh size callback, it assumes that the gmsh is initialized
-    and use the current model.
+    """Calls gmsh to generate a mesh from a geometry and a mesh size callback, it assumes that the
+    gmsh is initialized and use the current model.
+
+    The mesh is left in the current gmsh model, in the coordinate system `output_srs` (stored as
+    WKT in the model attribute "Projection"); write it with `gmsh.write`. Boundary and interior
+    curves, and forced points, are in physical groups named by their physical tags, the surface in
+    the physical group "domain". Curves that end up in no element of the surface (the outlines of
+    islands much smaller than the mesh size) are left out of their physical group, hence of the
+    file.
 
     Args:
         domain: the input geometry
-        mesh_size: callbable prescribing the mesh element size
+        mesh_size: callable prescribing the mesh element size; it is called with points in the
+            coordinate system of the domain, and must return positive sizes.
         version: msh file version (typically 2.0 or 4.0)
         intermediate_file_name: if not None, save intermediate meshes to those
             files for debugging purpose (suffixes and extensions will be
             appended), if == "-", an interactive gmsh graphical window will pop
-            up after each meshing step.
+            up after each meshing step. Only used when smoothness is 0.
         smoothness: Maximum gradation of the mesh size, any positive value
-            is valid but a value in the range [0.1,0.5] is recommended.
+            is valid but a value in the range [0.1,0.5] is recommended. With 0, the mesh size is
+            not smoothed and another meshing strategy is used (successive adaptations).
         output_srs : coordinate system of the output file (if None, the
             coordinate system of the domain is used).
-        tranfinite_curves : dict(str, int) prescribe a fixed number of mesh getElements
+        transfinite_curves : dict(str, int) prescribe a fixed number of mesh nodes
             on curves with given physical tag.
         quad: if True, generate quadrangles instead of triangles. This a achieved by
             generating a quad-dominant mesh and then splitting all elements (quads and
@@ -417,9 +499,9 @@ def mesh(
 
 def reproject(
     input_filename: str,
-    input_srs: _tools.osr.SpatialReference,
+    input_srs: osr.SpatialReference,
     output_filename: str,
-    output_srs: _tools.osr.SpatialReference,
+    output_srs: osr.SpatialReference,
     output_version: float = 4.1,
 ):
     """Change the coordinate of an existing mesh.
@@ -432,7 +514,7 @@ def reproject(
             coordinate system of the domain is used).
         output_version: msh file version (typically 2.0 or 4.0)
     """
-    gmsh.model.add(str(_tools.uuid.uuid4()))
+    gmsh.model.add(str(uuid.uuid4()))
     gmsh.open(input_filename)
     _reproject(input_srs, output_srs)
     gmsh.option.setNumber("Mesh.MshFileVersion", output_version)
@@ -443,7 +525,7 @@ def reproject(
 
 
 def convert_to_gis(
-    input_filename: str, projection: _tools.osr.SpatialReference, output_filename: str
+    input_filename: str, projection: osr.SpatialReference, output_filename: str
 ) -> None:
     """Converts a triangular gmsh mesh into shapefile or geopackage.
 
@@ -456,39 +538,39 @@ def convert_to_gis(
         output_filename : shape file (.shp) or geopackage (.gpkg) file
     """
     logger.info('Convert "%s" into "%s"', input_filename, output_filename)
-    gmsh.model.add(str(_tools.uuid.uuid4()))
+    gmsh.model.add(str(uuid.uuid4()))
     gmsh.open(input_filename)
     if output_filename.endswith(".shp"):
-        shpdriver = _tools.ogr.GetDriverByName("ESRI Shapefile")
+        shpdriver = ogr.GetDriverByName("ESRI Shapefile")
     elif output_filename.endswith(".gpkg"):
-        shpdriver = _tools.ogr.GetDriverByName("GPKG")
+        shpdriver = ogr.GetDriverByName("GPKG")
     else:
         raise ValueError("Unknown file extension '" + output_filename + "'")
-    if _tools.os.path.exists(output_filename):
+    if os.path.exists(output_filename):
         shpdriver.DeleteDataSource(output_filename)
     out_data_source = shpdriver.CreateDataSource(output_filename)
     if projection is None:
         p = gmsh.model.get_attribute("Projection")
         if len(p) == 2 and p[0] == "WKT":
-            projection = _tools.osr.SpatialReference()
+            projection = osr.SpatialReference()
             projection.ImportFromWkt(p[1])
-    out_layer = out_data_source.CreateLayer("mesh", geom_type=_tools.ogr.wkbPolygon, srs=projection)
-    out_layer.CreateField(_tools.ogr.FieldDefn("id", _tools.ogr.OFTInteger))
+    out_layer = out_data_source.CreateLayer("mesh", geom_type=ogr.wkbPolygon, srs=projection)
+    out_layer.CreateField(ogr.FieldDefn("id", ogr.OFTInteger))
     id_field = out_layer.FindFieldIndex("id", 1)
 
     tri_i, tri_n = gmsh.model.mesh.getElementsByType(2)
     node_tags, x, _ = gmsh.model.mesh.getNodesByElementType(2)
     x = x.reshape([-1, 3])
-    nodes_map = dict({tag: i for i, tag in enumerate(node_tags)})
-    tri_n = _tools.np.array(list(nodes_map[t] for t in tri_n)).reshape([-1, 3])
+    nodes_map = {tag: i for i, tag in enumerate(node_tags)}
+    tri_n = np.array([nodes_map[t] for t in tri_n]).reshape([-1, 3])
 
-    tri_n = _tools.np.column_stack([tri_n, tri_n[:, [0]]])
-    header = _tools.struct.pack("<biii", 1, 3, 1, 4)
+    tri_n = np.column_stack([tri_n, tri_n[:, [0]]])
+    header = struct.pack("<biii", 1, 3, 1, 4)
     out_data_source.StartTransaction()
     for i, tn in zip(tri_i, tri_n):
         wkb = header + x[tn, :2].astype("<f8").tobytes()
-        feat = _tools.ogr.Feature(out_layer.GetLayerDefn())
-        feat.SetGeometryDirectly(_tools.ogr.CreateGeometryFromWkb(wkb))
+        feat = ogr.Feature(out_layer.GetLayerDefn())
+        feat.SetGeometryDirectly(ogr.CreateGeometryFromWkb(wkb))
         feat.SetField(id_field, int(i))
         out_layer.CreateFeature(feat)
         feat = None
@@ -499,7 +581,7 @@ def convert_to_gis(
 def convert_to_ugrid_mesh_file(
     input_filename: str,
     dico_var: dict,
-    projection: _tools.osr.SpatialReference,
+    projection: osr.SpatialReference,
     output_filename: str,
 ) -> None:
     """Converts a triangular gmsh mesh into netcdf ugrid mesh file.
@@ -507,38 +589,31 @@ def convert_to_ugrid_mesh_file(
     Args:
         input_filename : any mesh file readable by gmsh (typically
             a .msh file)
-        dico_var : a dictionary of variable name with all required informations
+        dico_var : a dictionary of variable name with all required information
         projection: the projection assigned to the mnt layer
         output_filename : netcdf ugrid mesh file (.nc)
     """
-    if not _tools.xarray_available:
+    if not xarray_available:
         raise ValueError("The xarray python library is required to write ugrid files.")
 
     logger.info('Convert "%s" into "%s"', input_filename, output_filename)
-    gmsh.model.add(str(_tools.uuid.uuid4()))
+    gmsh.model.add(str(uuid.uuid4()))
     gmsh.open(input_filename)
 
-    tri_i, tri_n = gmsh.model.mesh.getElementsByType(2)
+    _, tri_n = gmsh.model.mesh.getElementsByType(2)
     tri_n = tri_n.reshape([-1, 3])
 
-    node_i, nodes, _ = gmsh.model.mesh.getNodes()
+    _, nodes, _ = gmsh.model.mesh.getNodes()
     nodes = nodes.reshape([-1, 3])
     x = nodes[:, 0]
     y = nodes[:, 1]
 
-    # unit_proj = projection.GetLinearUnits()
-    # print(unit_proj)
+    element = np.subtract(tri_n, 1)
+    mesh_topology = np.array([-2147483647], dtype="int32")
 
-    node = _tools.np.arange(0, len(x), 1)
-    element = _tools.np.subtract(tri_n, 1)
-    nvertex = _tools.np.array([0, 1, 2], dtype="int32")
-    nele = _tools.np.arange(0, len(tri_i), 1, dtype="int32")
-    mesh_topology = _tools.np.array([-2147483647], dtype="int32")
-    single = _tools.np.array([0], dtype="int32")
+    ds = xr.Dataset()
 
-    ds = _tools.xr.Dataset()
-
-    ds.coords["longitude"] = (("node"), _tools.np.double(x))
+    ds.coords["longitude"] = (("node"), np.double(x))
     ds["longitude"].attrs = {
         "long_name": "longitude",
         "standard_name": "longitude",
@@ -546,7 +621,7 @@ def convert_to_ugrid_mesh_file(
         "positive": "east",
     }
 
-    ds.coords["latitude"] = (("node"), _tools.np.double(y))
+    ds.coords["latitude"] = (("node"), np.double(y))
     ds["latitude"].attrs = {
         "long_name": "latitude",
         "standard_name": "latitude",
@@ -572,7 +647,7 @@ def convert_to_ugrid_mesh_file(
         "topology_dimension": 2,
     }
 
-    for var in dico_var.keys():
+    for var in dico_var:
         var_val = dico_var[var]["callable_func"](nodes, projection)
         ds[var] = (("node"), var_val)
         ds[var].attrs = {
@@ -583,7 +658,7 @@ def convert_to_ugrid_mesh_file(
             "units": dico_var[var]["units"],
         }
 
-    encoding = {v: {"zlib": True, "complevel": 4} for v in dico_var.keys()}
+    encoding = {v: {"zlib": True, "complevel": 4} for v in dico_var}
     ds.attrs = {
         "title": gmsh.model.getCurrent(),
         "institution": "Institution Name",
@@ -593,7 +668,6 @@ def convert_to_ugrid_mesh_file(
     }
 
     ds.to_netcdf(path=output_filename, format="NETCDF4", encoding=encoding)
-    # ds.to_netcdf(path=output_filename, format='NETCDF4')
 
     gmsh.model.remove()
 
@@ -617,7 +691,7 @@ def merge_meshes(filename_orig: str, filename_dest: str, filename_out: str, seam
 
     def get_ordered_nodes_for_physical_line(model, ptag):
         gmsh.model.set_current(model)
-        for d, i in gmsh.model.get_physical_groups(1):
+        for _, i in gmsh.model.get_physical_groups(1):
             if gmsh.model.get_physical_name(1, i) == ptag:
                 entities = gmsh.model.get_entities_for_physical_group(1, i)
                 if len(entities) != 1:
@@ -625,17 +699,17 @@ def merge_meshes(filename_orig: str, filename_dest: str, filename_out: str, seam
                 n_, x_, _ = gmsh.model.mesh.get_nodes(1, entities[0], True, False)
                 x_ = x_.reshape(-1, 3)
                 xmap = dict(zip(n_, x_))
-                etag, enodes = gmsh.model.mesh.get_elements_by_type(1, entities[0])
+                _, enodes = gmsh.model.mesh.get_elements_by_type(1, entities[0])
                 enodes = enodes.reshape(-1, 2)
-                nextn = dict((a, b) for (a, b) in enodes)
+                nextn = dict(enodes)
                 pfrom = gmsh.model.get_boundary([(1, entities[0])])[0][1]
                 points = [pfrom]
                 while points[-1] in nextn:
                     points.append(nextn[points[-1]])
                 return (
                     entities[0],
-                    _tools.np.array(points, _tools.np.uint64),
-                    _tools.np.array(list(xmap[i] for i in points)),
+                    np.array(points, np.uint64),
+                    np.array([xmap[i] for i in points]),
                 )
         raise ValueError(f"Physical tag '{ptag}' not found in mesh '{model}'")
 
@@ -649,26 +723,26 @@ def merge_meshes(filename_orig: str, filename_dest: str, filename_out: str, seam
     nodemap = {}
     ignoreentities = []
     for tagfrom, tagto in seamlines.items():
-        ento, nodesto, xto = get_ordered_nodes_for_physical_line(model_dest, tagto)
+        _, nodesto, xto = get_ordered_nodes_for_physical_line(model_dest, tagto)
         entfrom, nodesfrom, xfrom = get_ordered_nodes_for_physical_line(model_orig, tagfrom)
         if nodesto.size != nodesfrom.size:
             raise ValueError(f"Nodes do not match for tags {tagfrom}, {tagto}")
-        if _tools.np.linalg.norm(xto - xfrom) > _tools.np.linalg.norm(xto - xfrom[::-1]):
+        if np.linalg.norm(xto - xfrom) > np.linalg.norm(xto - xfrom[::-1]):
             nodesto = nodesto[::-1]
         ignoreentities.append((1, entfrom))
         for i, j in zip(nodesto, nodesfrom):
             logger.debug("seam %s -> %s: node %d on node %d", tagfrom, tagto, j, i)
             nodemap[j] = i
 
-    for dim in range(4):
+    for entity_dim in range(4):
         gmsh.model.set_current(model_orig)
-        for dim, tag in gmsh.model.get_entities(dim):
+        for dim, tag in gmsh.model.get_entities(entity_dim):
             gmsh.model.set_current(model_orig)
             ntag, ncoord, npcoord = gmsh.model.mesh.get_nodes(dim, tag)
-            etypes, etags, enodes = gmsh.model.mesh.get_elements(dim, tag)
-            keep = list(t not in nodemap for t in ntag)
-            n = _tools.np.sum(keep)
-            dntag = _tools.np.uint64(itag) + _tools.np.arange(n, dtype=ntag.dtype) + 1
+            etypes, _, enodes = gmsh.model.mesh.get_elements(dim, tag)
+            keep = [t not in nodemap for t in ntag]
+            n = np.sum(keep)
+            dntag = np.uint64(itag) + np.arange(n, dtype=ntag.dtype) + 1
             itag += n
             if (dim, tag) in ignoreentities:
                 continue
@@ -686,7 +760,7 @@ def merge_meshes(filename_orig: str, filename_dest: str, filename_out: str, seam
             )
             for t0, t1 in zip(ntag[keep], dntag):
                 nodemap[t0] = t1
-            dntag = list(list(nodemap[n] for n in l) for l in enodes)
+            dntag = [[nodemap[n] for n in nodes] for nodes in enodes]
             for et, dnt in zip(etypes, dntag):
                 gmsh.model.mesh.add_elements_by_type(dtag, et, [], dnt)
 

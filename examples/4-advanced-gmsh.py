@@ -9,8 +9,8 @@
 # We start as usual.
 
 import os
-import urllib.request
 import tarfile
+import urllib.request
 
 if not os.path.isdir("data"):
     url = "https://nextcloud.cism.ucl.ac.be/s/e7daeWsMpormjpz/download/data-test-1.tar.gz"
@@ -19,11 +19,18 @@ if not os.path.isdir("data"):
     f.extractall()
 
 
-import seamsh
-from seamsh.geometry import CurveType
-import seamsh.geometry
+import gmsh
 import numpy as np
 from osgeo import osr
+
+import seamsh
+import seamsh.geometry
+from seamsh.geometry import CurveType
+
+# %%
+# seamsh drives gmsh, which has to be initialized first.
+
+gmsh.initialize()
 
 domain_srs = osr.SpatialReference()
 domain_srs.ImportFromProj4("+proj=utm +ellps=WGS84 +zone=31")
@@ -47,11 +54,12 @@ coarse = seamsh.geometry.coarsen_boundaries(domain, (8e5, 4.68e6), domain_srs, m
 # The gmsh options are set. The full list of gmsh mesh options can be found in
 # `gmsh's documentation <https://gmsh.info/doc/texinfo/gmsh.html#Mesh-options-list>`_.
 
-seamsh.gmsh.gmsh.option.setNumber("Mesh.RecombineAll", 1)
-seamsh.gmsh.gmsh.option.setNumber("Mesh.RecombinationAlgorithm", 1)
-seamsh.gmsh.gmsh.option.setNumber("Mesh.Algorithm", 8)
+gmsh.option.setNumber("Mesh.RecombineAll", 1)
+gmsh.option.setNumber("Mesh.RecombinationAlgorithm", 1)
+gmsh.option.setNumber("Mesh.Algorithm", 8)
 
 # %%
 # Eventually the mesh is generated.
 
-seamsh.gmsh.mesh(coarse, "quad_mesh.msh", mesh_size)
+seamsh.gmsh.mesh(coarse, mesh_size)
+gmsh.write("quad_mesh.msh")
