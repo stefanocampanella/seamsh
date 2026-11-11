@@ -3,6 +3,7 @@
 import ctypes as c
 
 import numpy as np
+import pytest
 
 from seamsh import _tools
 
@@ -18,7 +19,8 @@ def gen_boundaries(x, triangles, first, sizes, tags=None):
     tag_lists = np.c_[tags, np.full(len(x), -1)].astype(np.int32).reshape(-1)
     n_lines, n_points = c.c_int(), c.c_int()
     p_points, p_lines = c.POINTER(c.c_double)(), c.POINTER(c.c_int)()
-    _tools.lib.gen_boundaries_from_points(
+    _tools.lib.gen_boundaries_from_points.restype = c.c_int
+    error = _tools.lib.gen_boundaries_from_points(
         c.c_int(len(x)),
         _tools.np2c(x),
         _tools.np2c(tag_lists, np.int32),
@@ -31,6 +33,9 @@ def gen_boundaries(x, triangles, first, sizes, tags=None):
         c.byref(p_lines),
         c.byref(n_lines),
     )
+    if error != 0:
+        assert not p_points and not p_lines and n_points.value == 0 and n_lines.value == 0
+        raise RuntimeError(error)
     points = np.ctypeslib.as_array(p_points, (n_points.value * 2,)).reshape(-1, 2).copy()
     lines = np.ctypeslib.as_array(p_lines, (n_lines.value,)).copy()
     _tools.lib.libcfree(p_points)
@@ -102,3 +107,35 @@ def test_polymesh_triangulates_points():
     assert triangles.shape == (4, 3)
     assert (triangles == 4).any(axis=1).all()
     assert set(triangles.reshape(-1).tolist()) == {0, 1, 2, 3, 4}
+
+
+def test_errors_are_returned_not_fatal():
+    """An inconsistent input must give an error code and no result. It used to end the Python
+    process (`exit(1)`) or to loop forever."""
+    # A seed that is not a triangle.
+    with pytest.raises(RuntimeError, match="2"):
+        gen_boundaries(RING_POINTS, RING_TRIANGLES, 99, np.full(8, 1.0))
+    # Three triangles on one edge (0, 1): not a triangulation of the plane.
+    points = [[0, 0], [10, 0], [5, 8], [5, -8], [5, 3]]
+    triangles = [[0, 1, 2], [1, 0, 3], [0, 1, 4]]
+    try:
+        gen_boundaries(points, triangles, 0, np.full(5, 1.0))
+    except RuntimeError as error:
+        assert str(error) == "2"
+
+
+def test_inside_out_slivers_do_not_break_the_walks():
+    """Three points almost on a line give a triangle of almost no area, which may be listed inside
+    out relative to its neighbours. Triangles are oriented from their neighbours, not one by one, so
+    that walking around a point still visits each triangle once."""
+    points = [[0, 0], [5, 1e-9], [10, 0], [10, 10], [0, 10]]
+    # (0, 1, 2) is the sliver, here with the same orientation as its neighbours...
+    triangles = [[0, 2, 1], [0, 1, 4], [1, 2, 3], [1, 3, 4]]
+    reference, curves = gen_boundaries(points, triangles, 1, np.full(5, 1.0))
+    assert len(curves) == 1
+    # ... and here with every triangle listed in the other direction, or in mixed directions.
+    for flipped in ([0, 1, 2, 3], [1, 3], [0]):
+        mixed = [t[::-1] if i in flipped else t for i, t in enumerate(triangles)]
+        result, curves = gen_boundaries(points, mixed, 1, np.full(5, 1.0))
+        assert len(curves) == 1
+        assert sorted(map(tuple, np.round(result, 6))) == sorted(map(tuple, np.round(reference, 6)))

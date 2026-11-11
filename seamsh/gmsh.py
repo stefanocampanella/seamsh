@@ -46,11 +46,19 @@ def _gmsh_curve_geo(curve_type: _geometry.CurveType, pointsid):
         raise ValueError("unknown curve_type '%s'" % curve_type)
 
 
+def _check_sizes(size):
+    """Sampling refines a curve until its segments are shorter than the size: a size that is zero,
+    negative or not a number would make it loop forever, or stop without notice."""
+    if not _tools.np.all(size > 0):
+        raise ValueError("The mesh size callback must return positive numbers")
+    return size
+
+
 def _curve_sample_gmsh_tag(tag, lc, projection):
     bounds = gmsh.model.getParametrizationBounds(1, tag)
     xi = _tools.np.linspace(bounds[0][0], bounds[1][0], 5)
     x = gmsh.model.getValue(1, tag, xi).reshape([-1, 3])
-    size = lc(x, projection)
+    size = _check_sizes(lc(x, projection))
     while True:
         dist = _tools.np.linalg.norm(x[1:, :] - x[:-1, :], axis=1)
         target = _tools.np.minimum(size[1:], size[:-1])
@@ -58,7 +66,7 @@ def _curve_sample_gmsh_tag(tag, lc, projection):
             break
         exi = (xi[1:][target < dist] + xi[:-1][target < dist]) / 2
         ex = gmsh.model.getValue(1, tag, exi).reshape([-1, 3])
-        esize = lc(ex, projection)
+        esize = _check_sizes(lc(ex, projection))
         xi = _tools.np.hstack([xi, exi])
         s = _tools.np.argsort(xi)
         xi = xi[s]
@@ -74,29 +82,39 @@ class _lcproj:
 
     def __call__(self, x, projection):
         xlc = _tools.project_points(x, self.projection, projection)
-        x2 = _tools.np.copy(x)
-        eps = 1e-8
-        x2[:, : projection.GetAxesCount()] += eps
-        xlc = _tools.project_points(x, self.projection, projection)
-        xlc2 = _tools.project_points(x2, self.projection, projection)
         slc = self.lc(xlc, projection)
+        if self.projection.IsSame(projection):
+            return slc
+        # Local scale of the projection, by finite differences: how far the projected point moves
+        # when the point moves by (eps, eps). The step is 1e-8 for coordinates up to about a
+        # thousand (degrees), and grows in proportion beyond (metres), where 1e-8 would be lost in
+        # the rounding of the coordinates.
+        eps = max(1e-8, 1e-11 * float(_tools.np.abs(x).max()))
+        x2 = _tools.np.copy(x)
+        x2[:, : projection.GetAxesCount()] += eps
+        xlc2 = _tools.project_points(x2, self.projection, projection)
         enorm = _tools.np.hypot(eps, eps)
         h = _tools.np.linalg.norm(xlc2 - xlc, axis=1) / enorm
         return slc / h
 
 
 def _curve_sample(curve, lc, projection):
+    # The curve is built in a temporary gmsh model; the caller's model is made current again.
+    current_model = gmsh.model.getCurrent()
     gmsh.model.add(str(_tools.uuid.uuid4()))
-    tags = list([gmsh.model.geo.addPoint(*x, 0) - 1 for x in curve.points[:-1, :]])
-    if _tools.np.linalg.norm(curve.points[0, :] - curve.points[-1, :]) < 1e-8:
-        tags.append(tags[0])
-    else:
-        tags.append(gmsh.model.geo.addPoint(*curve.points[-1, :], 0) - 1)
-    ltag = _gmsh_curve_geo(curve.curve_type, tags)
-    gmsh.model.geo.synchronize()
-    plc = _lcproj(lc, curve.projection)
-    r = _curve_sample_gmsh_tag(ltag[0], plc, projection)[0]
-    gmsh.model.remove()
+    try:
+        tags = list([gmsh.model.geo.addPoint(*x, 0) - 1 for x in curve.points[:-1, :]])
+        if _tools.np.linalg.norm(curve.points[0, :] - curve.points[-1, :]) < 1e-8:
+            tags.append(tags[0])
+        else:
+            tags.append(gmsh.model.geo.addPoint(*curve.points[-1, :], 0) - 1)
+        ltag = _gmsh_curve_geo(curve.curve_type, tags)
+        gmsh.model.geo.synchronize()
+        plc = _lcproj(lc, curve.projection)
+        r = _curve_sample_gmsh_tag(ltag[0], plc, projection)[0]
+    finally:
+        gmsh.model.remove()
+        gmsh.model.setCurrent(current_model)
     return _tools.project_points(r, curve.projection, projection)
 
 
@@ -199,6 +217,10 @@ def _mesh_bgrid(domain: _geometry.Domain, mesh_size: _geometry.MeshSizeCallback,
     gmsh.option.setNumber("Mesh.CharacteristicLengthFromParametricPoints", 0)
     logger.info("Mesh with gmsh")
     gmsh.model.mesh.generate(2)
+    # The size field and its view are internals: do not leave them in the caller's model, where
+    # the view would be written to files with the mesh.
+    gmsh.model.mesh.field.remove(field)
+    gmsh.view.remove(view)
 
 
 def _mesh_successive(
@@ -268,8 +290,40 @@ def _mesh_successive(
     gmsh.model.mesh.field.remove(bg_field)
 
 
+def _drop_curves_outside_the_mesh():
+    """Takes out of the physical groups the curves none of whose nodes belongs to a surface element.
+
+    These are the outlines of islands much smaller than the mesh size: gmsh meshes the outline with
+    one to three nodes, cannot use it as a hole, and covers the island with triangles. Left in their
+    physical group, they would be written to the mesh file as boundary elements on nodes that no
+    triangle uses. gmsh does not let us delete a curve on the boundary of a meshed surface (nor its
+    mesh), but it writes only the elements of physical groups.
+    """
+    surface_nodes = gmsh.model.mesh.getElements(2)[2]
+    used = set(_tools.np.concatenate(surface_nodes).tolist()) if surface_nodes else set()
+    n_dropped = 0
+    for dim, group in gmsh.model.getPhysicalGroups(1):
+        curves = gmsh.model.getEntitiesForPhysicalGroup(dim, group)
+        kept = []
+        for curve in curves:
+            curve_nodes = gmsh.model.mesh.getElements(dim, int(curve))[2]
+            nodes = _tools.np.concatenate(curve_nodes).tolist() if curve_nodes else []
+            if used.intersection(nodes):
+                kept.append(int(curve))
+        if len(kept) == len(curves):
+            continue
+        n_dropped += len(curves) - len(kept)
+        name = gmsh.model.getPhysicalName(dim, group)
+        gmsh.model.removePhysicalGroups([(dim, group)])
+        if kept:
+            gmsh.model.addPhysicalGroup(dim, kept, group)
+            gmsh.model.setPhysicalName(dim, group, name)
+    if n_dropped:
+        logger.info("%d curves smaller than the mesh size left out of the mesh", n_dropped)
+
+
 def _reproject(input_srs, output_srs):
-    if input_srs == None:
+    if input_srs is None:
         p = gmsh.model.get_attribute("Projection")
         if len(p) == 2 and p[0] == "WKT":
             input_srs = _tools.osr.SpatialReference()
@@ -301,7 +355,7 @@ def mesh(
     intermediate_file_name: str = None,
     smoothness=0.3,
     output_srs: _tools.osr.SpatialReference = None,
-    transfinite_curves: dict = {},
+    transfinite_curves: dict = None,
     quad: bool = False,
 ) -> None:
     """Calls gmsh to generate a mesh from a geometry and a mesh size callback, it assumes that the gmsh is initialized
@@ -326,6 +380,8 @@ def mesh(
             triangles) into quads. So the resulting mesh size is half the prescribed one.
     """
     logger.info("Generate mesh")
+    if transfinite_curves is None:
+        transfinite_curves = {}
     domain._build_topology()
     _create_gmsh_geometry(domain)
     for dim, tag in gmsh.model.get_physical_groups(1):
@@ -348,16 +404,7 @@ def mesh(
         gmsh.option.setNumber("Mesh.SecondOrderLinear", 1)
         gmsh.model.mesh.refine()
 
-    # remove nodes that do not touch any triangle
-    _, keepnodes = gmsh.model.mesh.getElementsByType(2)
-    keepnodes = set(keepnodes)
-    rm = []
-    for e in gmsh.model.getEntities(1):
-        enodes, _, _ = gmsh.model.mesh.getNodes(*e)
-        if (len(enodes) == 0) or (not (enodes[0] in keepnodes)):
-            rm.append(e)
-    if len(rm) != 0:
-        gmsh.model.removeEntities(rm, True)
+    _drop_curves_outside_the_mesh()
     if output_srs is not None:
         _reproject(domain._projection, output_srs)
     else:
@@ -408,7 +455,7 @@ def convert_to_gis(
             re-projections are performed (if none mesh projection will be used).
         output_filename : shape file (.shp) or geopackage (.gpkg) file
     """
-    _tools.log('Convert "{}" into "{}"'.format(input_filename, output_filename), True)
+    logger.info('Convert "%s" into "%s"', input_filename, output_filename)
     gmsh.model.add(str(_tools.uuid.uuid4()))
     gmsh.open(input_filename)
     if output_filename.endswith(".shp"):
@@ -420,7 +467,7 @@ def convert_to_gis(
     if _tools.os.path.exists(output_filename):
         shpdriver.DeleteDataSource(output_filename)
     out_data_source = shpdriver.CreateDataSource(output_filename)
-    if projection == None:
+    if projection is None:
         p = gmsh.model.get_attribute("Projection")
         if len(p) == 2 and p[0] == "WKT":
             projection = _tools.osr.SpatialReference()
@@ -467,7 +514,7 @@ def convert_to_ugrid_mesh_file(
     if not _tools.xarray_available:
         raise ValueError("The xarray python library is required to write ugrid files.")
 
-    _tools.log('Convert "{}" into "{}"'.format(input_filename, output_filename), True)
+    logger.info('Convert "%s" into "%s"', input_filename, output_filename)
     gmsh.model.add(str(_tools.uuid.uuid4()))
     gmsh.open(input_filename)
 
@@ -574,7 +621,7 @@ def merge_meshes(filename_orig: str, filename_dest: str, filename_out: str, seam
             if gmsh.model.get_physical_name(1, i) == ptag:
                 entities = gmsh.model.get_entities_for_physical_group(1, i)
                 if len(entities) != 1:
-                    raise ValueError("Multiple entities on physical tag {ptag} on mesh {model}")
+                    raise ValueError(f"Multiple entities on physical tag {ptag} on mesh {model}")
                 n_, x_, _ = gmsh.model.mesh.get_nodes(1, entities[0], True, False)
                 x_ = x_.reshape(-1, 3)
                 xmap = dict(zip(n_, x_))
@@ -609,9 +656,8 @@ def merge_meshes(filename_orig: str, filename_dest: str, filename_out: str, seam
         if _tools.np.linalg.norm(xto - xfrom) > _tools.np.linalg.norm(xto - xfrom[::-1]):
             nodesto = nodesto[::-1]
         ignoreentities.append((1, entfrom))
-        print("---")
         for i, j in zip(nodesto, nodesfrom):
-            print(j, i)
+            logger.debug("seam %s -> %s: node %d on node %d", tagfrom, tagto, j, i)
             nodemap[j] = i
 
     for dim in range(4):

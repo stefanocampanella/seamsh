@@ -97,7 +97,41 @@ def test_current_gmsh_model_is_kept(model):
     assert gmsh.model.getCurrent() == model
 
 
-@pytest.mark.xfail(strict=True, reason="coarsen_boundaries calls np.random.seed(0)")
+def test_straight_boundaries_finely_sampled(model):
+    """Points sampled on straight lines give a triangulation with triangles of almost no area, some
+    of them inside out. The coarsening used to loop forever on it; it must give the boundary of
+    both basins, joined by the 2 km channel that a 1 km coarsening keeps open."""
+    coarse = coarsen_boundaries(two_basins(half_width=1e3), (20e3, 20e3), utm(), uniform(1e3))
+    assert len(coarse._curves) == 1
+    points = coarse._curves[0].points
+    lo, hi = bounds(points)
+    assert lo[0] < 1e3 and hi[0] > 99e3
+    in_channel = points[(points[:, 0] > 45e3) & (points[:, 0] < 55e3)]
+    assert len(in_channel) >= 10
+    assert (np.abs(np.abs(in_channel[:, 1] - 20e3) - 1e3) < 100.0).all()
+
+
+def test_mesh_size_must_be_positive(model):
+    """A size of zero (or NaN) would sample the curves forever (or silently too little)."""
+    for bad in (0.0, np.nan):
+        with pytest.raises(ValueError, match="positive"):
+            coarsen_boundaries(square_with_island(), (10e3, 10e3), utm(), uniform(bad))
+    assert gmsh.model.getCurrent() == model
+
+
+def test_points_shared_by_two_curves_have_both_tags():
+    """Where two curves meet, the point carries both tags, so that the coarsened boundary is cut
+    exactly there. (The second tag used to be attached to an unrelated entry.)"""
+    from seamsh.geometry import _point_tag_lists
+
+    # Four samples: curve 1 on points 0 and 1, curve 2 on points 1 and 2.
+    lists = _point_tag_lists([0, 1, 1, 2], [1, 1, 2, 2], 3).reshape(-1, 2)
+    assert lists.tolist() == [[1, -1], [1, 3], [2, -1], [2, -1]]
+    # A tag seen twice on a point is stored once.
+    lists = _point_tag_lists([0, 0, 0], [5, 5, 7], 1).reshape(-1, 2)
+    assert lists.tolist() == [[5, 1], [7, -1]]
+
+
 def test_global_random_state_is_untouched(model):
     """The jitter that avoids cocircular points must not reset numpy's global random generator."""
     np.random.seed(123)

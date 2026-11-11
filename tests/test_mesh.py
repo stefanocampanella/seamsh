@@ -122,18 +122,102 @@ def test_two_separate_squares(model):
     np.testing.assert_allclose(signed_areas(mesh).sum(), 2 * 40e3**2, rtol=0.02)
 
 
-@pytest.mark.xfail(strict=True, reason="outlines of islands smaller than the mesh size stay")
-def test_islands_smaller_than_the_mesh_leave_no_stray_nodes(model):
+def written_mesh(path) -> dict:
+    """The current mesh as a reader gets it: written to a file and read back."""
+    gmsh.write(str(path))
+    gmsh.clear()
+    gmsh.open(str(path))
+    return current_mesh()
+
+
+def test_islands_smaller_than_the_mesh_are_left_out_of_the_file(model, tmp_path):
     """An island much smaller than the mesh size is covered by triangles; its outline must then
-    not stay in the mesh as boundary elements whose nodes belong to no triangle."""
+    not be written as boundary elements whose nodes belong to no triangle (743 such nodes in
+    moby-dick's 120 km mesh, which every reader had to drop)."""
     seamsh.gmsh.mesh(square_with_island(island=1e3), uniform(25e3))
-    mesh = current_mesh()
+    mesh = written_mesh(tmp_path / "mesh.msh")
     assert stray_line_nodes(mesh) == 0
+    assert len(np.unique(mesh["triangles"])) == len(mesh["x"])
+    assert mesh["groups"] == ["coast", "domain"]
+    # The triangles cover the island.
+    np.testing.assert_allclose(signed_areas(mesh).sum(), 100e3**2, rtol=0.01)
 
 
-@pytest.mark.xfail(strict=True, reason="the background size view 'tri' is left behind")
-def test_no_view_is_left_in_gmsh(model):
+def test_islands_larger_than_the_mesh_stay_in_the_file(model, tmp_path):
+    """The boundary of an island that the mesh resolves is written with its physical group."""
+    seamsh.gmsh.mesh(square_with_island(island=20e3), uniform(10e3))
+    mesh = written_mesh(tmp_path / "mesh.msh")
+    assert stray_line_nodes(mesh) == 0
+    assert mesh["groups"] == ["coast", "domain", "island"]
+    assert len(np.unique(mesh["triangles"])) == len(mesh["x"])
+
+
+def test_no_view_or_field_is_left_in_gmsh(model):
     """The view holding the background size field is an internal: callers that write their own
     views (moby-dick) must not find it in the file."""
     seamsh.gmsh.mesh(square_with_island(), uniform(20e3))
     assert len(gmsh.view.getTags()) == 0
+    assert len(gmsh.model.mesh.field.list()) == 0
+
+
+def test_mesh_size_must_be_positive(model):
+    """A size of zero (or NaN) would refine the curves forever (or silently not at all)."""
+    for bad in (0.0, np.nan, -1.0):
+        gmsh.clear()
+        gmsh.model.add("test")
+        with pytest.raises(ValueError, match="positive"):
+            seamsh.gmsh.mesh(square_with_island(), uniform(bad), smoothness=0)
+
+
+def test_convert_to_gis_and_reproject(model, tmp_path):
+    """A mesh file converts to a GIS layer with one polygon per triangle, in the projection stored
+    in the file, and `reproject` rewrites it in another reference system."""
+    from osgeo import ogr
+
+    seamsh.gmsh.mesh(square_with_island(), uniform(20e3))
+    n_triangles = len(current_mesh()["triangles"])
+    msh = tmp_path / "mesh.msh"
+    gmsh.write(str(msh))
+    seamsh.gmsh.convert_to_gis(str(msh), None, str(tmp_path / "mesh.gpkg"))
+    source = ogr.Open(str(tmp_path / "mesh.gpkg"))
+    layer = source.GetLayer()
+    assert layer.GetFeatureCount() == n_triangles
+    assert layer.GetSpatialRef().IsSame(utm())
+    west, east, south, north = layer.GetExtent()
+    np.testing.assert_allclose([west, east, south, north], [0, 100e3, 0, 100e3], atol=1.0)
+
+    lonlat = osr.SpatialReference()
+    lonlat.ImportFromEPSG(4326)
+    lonlat.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+    seamsh.gmsh.reproject(str(msh), None, str(tmp_path / "lonlat.msh"), lonlat)
+    gmsh.clear()
+    gmsh.open(str(tmp_path / "lonlat.msh"))
+    mesh = current_mesh()
+    assert len(mesh["triangles"]) == n_triangles
+    assert -1.6 < mesh["x"][:, 0].min() < -1.4 and mesh["x"][:, 1].max() < 1.0
+
+
+def test_size_callback_scaling_between_projections():
+    """Curves are sampled in their own projection, where the size (given in the domain's) is divided
+    by the local scale of the projection, estimated by finite differences. The estimate must hold
+    for coordinates in degrees and in metres (where a step of 1e-8 is lost in rounding), and is
+    exactly 1 when both projections are the same."""
+    lonlat = osr.SpatialReference()
+    lonlat.ImportFromEPSG(4326)
+    lonlat.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+    utm32 = osr.SpatialReference()
+    utm32.ImportFromEPSG(32632)
+    size = uniform(1000.0)
+
+    def scale(source, x, step):
+        to_utm = osr.CoordinateTransformation(source, utm())
+        a = np.array(to_utm.TransformPoint(*x)[:2])
+        b = np.array(to_utm.TransformPoint(x[0] + step, x[1] + step)[:2])
+        return np.linalg.norm(b - a) / np.hypot(step, step)
+
+    same = seamsh.gmsh._lcproj(size, utm())(np.array([[5e5, 5e6]]), utm())
+    np.testing.assert_array_equal(same, [1000.0])
+    degrees = seamsh.gmsh._lcproj(size, lonlat)(np.array([[3.0, 45.0]]), utm())
+    np.testing.assert_allclose(degrees, 1000.0 / scale(lonlat, (3.0, 45.0), 1e-5), rtol=1e-4)
+    metres = seamsh.gmsh._lcproj(size, utm32)(np.array([[2e5, 5e6]]), utm())
+    np.testing.assert_allclose(metres, 1000.0 / scale(utm32, (2e5, 5e6), 1.0), rtol=1e-4)

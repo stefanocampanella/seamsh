@@ -141,7 +141,7 @@ class Domain:
         breakpts = _tools.np.logical_and(touched_interior, breakpts)
 
         # break curves on repeated points
-        def split_curves(curves, breakpts, loops=[]):
+        def split_curves(curves, breakpts, loops=()):
             newcurves = []
             newmap = []
             for curve in curves:
@@ -352,6 +352,34 @@ class Domain:
 from .gmsh import _curve_sample
 
 
+def _point_tag_lists(point_ids, tags, n_points):
+    """The tags of each point, as the linked lists that the C library reads.
+
+    Args:
+        point_ids: for each sampled point, the index of its (merged) point.
+        tags: for each sampled point, the integer tag of its curve.
+        n_points: the number of merged points.
+    Returns:
+        A flat int array of (tag, next) pairs. Pair i < n_points is the first tag of point i (-1 if
+        it has none); `next` is the index of the pair holding its next tag, or -1. Points where
+        several curves meet have several tags.
+    """
+    lists = [[-1, -1] for _ in range(n_points)]
+    for i, tag in zip(point_ids, tags):
+        if lists[i][0] == -1:
+            lists[i][0] = tag
+            continue
+        last = i
+        found = lists[last][0] == tag
+        while not found and lists[last][1] != -1:
+            last = lists[last][1]
+            found = lists[last][0] == tag
+        if not found:
+            lists[last][1] = len(lists)
+            lists.append([tag, -1])
+    return _tools.np.array(lists, dtype=_tools.np.int32).reshape([-1])
+
+
 def coarsen_boundaries(
     domain: Domain,
     x0: _tools.Tuple[float, float],
@@ -391,26 +419,15 @@ def coarsen_boundaries(
     x = _tools.np.vstack(sampled)
     tags = _tools.np.concatenate(tags)
     x, unique_id, _ = _generate_unique_points(x)
-    utags = list([-1, -1] for i in x)
-    for i, tag in zip(unique_id, tags):
-        if utags[i][0] == -1:
-            utags[i][0] = tag
-        found = False
-        j = i
-        while j != -1:
-            found |= utags[j][0] == tag
-            j = utags[j][1]
-        if not found:
-            utags[j][1] = len(utags)
-        utags.append([tag, -1])
-    tags = _tools.np.array(utags).reshape([-1])
+    tags = _point_tag_lists(unique_id, tags, x.shape[0])
     x = _tools.np.copy(x[:, :2])
-    # avoid cocircular points
+    # Move the points by a tiny random amount, to avoid cocircular points in the triangulation.
+    # A generator of our own, seeded for reproducibility: the caller's global random state is left
+    # alone. (RandomState(0) gives the numbers that np.random.seed(0) used to give here.)
     eps = (
         _tools.np.max(x, axis=0, keepdims=True) - _tools.np.min(x, axis=0, keepdims=True)
     ) * 1e-12
-    _tools.np.random.seed(0)
-    x = x + _tools.np.random.random(x.shape) * eps
+    x = x + _tools.np.random.RandomState(0).random_sample(x.shape) * eps
     logger.info("Delaunay mesh of sampled points")
     tri = _tools.Delaunay(x)
     logger.info("Extract boundaries")
@@ -422,7 +439,8 @@ def coarsen_boundaries(
     p_xo = _tools.c.POINTER(_tools.c.c_double)()
     p_l = _tools.c.POINTER(_tools.c.c_int)()
     ms = mesh_size(x, domain._projection)
-    _tools.lib.gen_boundaries_from_points(
+    _tools.lib.gen_boundaries_from_points.restype = _tools.c.c_int
+    error = _tools.lib.gen_boundaries_from_points(
         _tools.c.c_int(x.shape[0]),
         _tools.np2c(x),
         _tools.np2c(tags, _tools.np.int32),
@@ -435,8 +453,9 @@ def coarsen_boundaries(
         _tools.c.byref(p_l),
         _tools.c.byref(n_l),
     )
-    # xptr = _tools.c.POINTER(n_xo.value*2*_tools.c.c_double)
-    # xbuf = _tools.c.cast(p_xo, xptr).contents
+    if error != 0:
+        reason = {1: "out of memory", 2: "inconsistent triangulation"}.get(error, "unknown error")
+        raise RuntimeError(f"Boundary coarsening failed: {reason}")
     xtype = _tools.c.POINTER(n_xo.value * 2 * _tools.c.c_double)
     xbuf = _tools.c.cast(p_xo, xtype).contents
     xo = _tools.npfrombuffer(xbuf, dtype=_tools.np.float64)

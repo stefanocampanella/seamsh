@@ -37,14 +37,14 @@ try:
     import xarray as xr
 
     xarray_available = True
-except:
+except ImportError:
     xarray_available = False
 
 try:
     import shapely.geometry
 
     shapely_available = True
-except:
+except ImportError:
     shapely_available = False
 
 
