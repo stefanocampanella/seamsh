@@ -472,6 +472,12 @@ static int *build_neighbours(int n_tri, const int *tri) {
     }
   }
   qsort(half_edges, n_half_edges, 4 * sizeof(int), half_edge_compare);
+  /* An edge with more than two triangles: not a triangulation of the plane. */
+  for (int i = 0; i + 2 < n_half_edges; ++i) {
+    if (half_edge_compare(half_edges + i * 4, half_edges + i * 4 + 4) == 0 &&
+        half_edge_compare(half_edges + i * 4, half_edges + i * 4 + 8) == 0)
+      fail(SEAMSH_BAD_TRIANGULATION);
+  }
   int *neighbours = owned_malloc(sizeof(int) * n_tri * 3);
   for (int i = 0; i < n_tri * 3; ++i) {
     neighbours[i] = -1;
@@ -590,13 +596,11 @@ static void extract_boundaries(const double *x, const double *size, const int *t
     int_vector_append(lines, n_lines, -1);
     i += length;
 
-    /* Move the boundary a little towards the domain: each point by size / 50 along the sum of two
-     * unit normals of the loop. The boundary then lies strictly inside the water of the original
-     * curves, so the splines drawn through its points do not cross them.
-     * NOTE: normals[j] is that of the segment that ends on point j, and point j is moved along
-     * normals[j] + normals[j - 1], i.e. the normals of the two segments before it, not of the two
-     * segments that meet on it. Left as it is: changing it would move every boundary point of
-     * existing meshes (by less than size / 25). */
+    /* Move the boundary a little towards the domain: each point by size / 50 along the sum of the
+     * unit normals of the two segments that meet on it (the domain is on the left of the loop, and
+     * so are the normals). The boundary then lies strictly inside the water of the original
+     * curves, so the splines drawn through its points do not cross them. normals[j] is the normal
+     * of the segment that ends on point j. */
     double *normals = owned_malloc(sizeof(double) * 2 * length);
     for (int j = 0; j < length; ++j) {
       const double *x0 = (*points) + (first_point + j) * 2;
@@ -605,12 +609,14 @@ static void extract_boundaries(const double *x, const double *size, const int *t
       n[0] = x1[1] - x0[1];
       n[1] = -x1[0] + x0[0];
       double norm = hypot(n[0], n[1]);
-      n[0] /= norm;
-      n[1] /= norm;
+      if (norm > 0) {
+        n[0] /= norm;
+        n[1] /= norm;
+      }
     }
     for (int j = 0; j < length; ++j) {
       const double *n0 = &normals[j * 2];
-      const double *n1 = &normals[((j + length - 1) % length) * 2];
+      const double *n1 = &normals[((j + 1) % length) * 2];
       (*points)[(first_point + j) * 2 + 0] += point_size[first_point + j] * (n0[0] + n1[0]) / (50);
       (*points)[(first_point + j) * 2 + 1] += point_size[first_point + j] * (n0[1] + n1[1]) / (50);
     }
@@ -723,7 +729,9 @@ static int *color_triangles(const double *x, int n_tri, const int *tri, const in
 }
 
 /*
- * Step 2: edge collapses, repeated over all triangles until nothing changes (at most 100 sweeps).
+ * Step 2: edge collapses, repeated over all triangles until nothing changes, or MAX_SWEEPS sweeps.
+ * Returns 1 if it stopped because nothing changed, 0 if it was cut short (the boundary may then be
+ * finer than asked in places).
  *  - Outside the domain (an edge between two triangles that are not colored, or on the border): a
  *    point of the edge that touches no colored triangle is removed by collapsing the edge onto its
  *    other point. What is left outside are triangles between boundary points only.
@@ -731,8 +739,9 @@ static int *color_triangles(const double *x, int n_tri, const int *tri, const in
  *    than 0.7 times the target size is collapsed, onto the point given by
  *    optimal_boundary_collapse or, if that is not valid, onto one of its ends.
  */
-static void optimize_mesh(double *x, double *length, int n_points, int n_tri, int *tri,
-                          const int *tri_color, int *neigh, int *tag) {
+#define MAX_SWEEPS 100
+static int optimize_mesh(double *x, double *length, int n_points, int n_tri, int *tri,
+                         const int *tri_color, int *neigh, int *tag) {
   /* 1 for the points of colored triangles. */
   int *vcolor = owned_malloc(sizeof(int) * n_points);
   for (int i = 0; i < n_points; ++i) {
@@ -773,8 +782,9 @@ static void optimize_mesh(double *x, double *length, int n_points, int n_tri, in
         }
       }
     }
-  } while (n_collapses != 0 && sweep < 100);
+  } while (n_collapses != 0 && sweep < MAX_SWEEPS);
   owned_free(vcolor);
+  return n_collapses == 0;
 }
 
 /*
@@ -787,11 +797,12 @@ static void optimize_mesh(double *x, double *length, int n_points, int n_tri, in
  * mesh_size:      the target size at each point; modified.
  * points, lines:  the result (see extract_boundaries), allocated here: the caller frees both with
  *                 libcfree.
+ * converged:      set to 0 if the edge collapses were cut short (see optimize_mesh), else to 1.
  * Returns SEAMSH_OK, or an error code, in which case there is no result (NULL pointers).
  */
 int gen_boundaries_from_points(int n_points, double *x, int *tag, int n_tri, int *tri, int n_seeds,
                                const int *seeds, double *mesh_size, double **points,
-                               int *n_out_points, int **lines, int *n_lines) {
+                               int *n_out_points, int **lines, int *n_lines, int *converged) {
   *points = NULL;
   *lines = NULL;
   *n_out_points = 0;
@@ -816,7 +827,7 @@ int gen_boundaries_from_points(int n_points, double *x, int *tag, int n_tri, int
   int *neigh = build_neighbours(n_tri, tri);
   orient_triangles(x, n_tri, tri, neigh);
   int *tri_color = color_triangles(x, n_tri, tri, neigh, n_seeds, seeds, mesh_size);
-  optimize_mesh(x, mesh_size, n_points, n_tri, tri, tri_color, neigh, tag);
+  *converged = optimize_mesh(x, mesh_size, n_points, n_tri, tri, tri_color, neigh, tag);
   extract_boundaries(x, mesh_size, tag, n_tri, tri, tri_color, points, n_out_points, lines,
                      n_lines);
   owned_free(tri_color);

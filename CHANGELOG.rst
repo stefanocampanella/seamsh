@@ -3,6 +3,15 @@ Changes
 seamsh 0.5.0
 ------------
 * disconnected domains: coarsen_boundaries takes several points (x0 can be a sequence of points) and keeps the basin around each one, e.g. a sea behind a strait narrower than the mesh size; mesh builds one surface per region of the domain (regions are found from the nesting of the boundary loops, so a lake on an island is meshed too) and embeds interior curves and points in the region that holds them
+* **meshes change**: the points of a coarsened boundary are moved towards the domain along the normals of the two segments that meet on them (the two segments before the point were used); coarsened domains have the same number of curves and points, moved by at most two twenty-fifths of the size, and their meshes have the same quality but other nodes
+* the smoothing of the mesh size stops on a tolerance relative to the sizes: meshes no longer depend on the unit of length (they are unchanged for sizes above 1000 units, e.g. in metres)
+* mesh leaves the gmsh options as they were, except the file version
+* mesh(quad=True) raises an error with builds of gmsh in which the quadrangle algorithm crashes (those without ANN, e.g. Ubuntu 24.04's gmsh 4.12.1)
+* more than two boundary curves meeting at a point, and triangulations with more than two triangles on an edge, are errors
+* a warning is logged when the coarsening stops before the boundary is at the requested size
+* field.Inpoly no longer needs shapely
+* convert_to_ugrid_mesh_file writes the connectivity as node indices and the units of the coordinates of the projection
+* seamsh.show_progress(False) turns the progress bars off
 * coarsen_boundaries no longer hangs on boundaries made of straight lines, keeps both tags of points shared by two curves and leaves numpy's global random state alone
 * errors of the C library are raised as Python exceptions instead of ending the process
 * outlines of islands smaller than the mesh size are no longer written to the mesh file (they were boundary elements on nodes that belong to no triangle)

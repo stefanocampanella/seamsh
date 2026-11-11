@@ -129,3 +129,46 @@ def test_region_of_a_point():
     assert domain._region_of((50e3, 50e3)) == 1
     assert domain._region_of((25e3, 50e3)) is None
     assert domain._region_of((150e3, 50e3)) is None
+
+
+def test_three_boundary_curves_at_a_point_are_refused():
+    """Where more than two boundary curves meet, nothing tells which one follows which: an error
+    that names the point. (The third curve used to replace the second without notice.)"""
+    srs = utm()
+    domain = Domain(srs)
+    domain.add_boundary_curve([[0, 0], [10e3, 0], [10e3, 10e3]], "a", srs)
+    domain.add_boundary_curve([[10e3, 10e3], [0, 10e3], [0, 0]], "b", srs)
+    domain.add_boundary_curve([[0, 0], [-10e3, -10e3]], "c", srs)
+    with pytest.raises(
+        ValueError, match=r"more than two boundary curves meet at \(.*0\.0.*0\.0.*\)"
+    ):
+        domain._build_topology()
+
+
+def test_transformations_are_cached_by_definition():
+    """Two projection objects with the same definition use the same cached transformation, and
+    the cache does not grow without bound."""
+    from osgeo import osr
+
+    from seamsh import _tools
+
+    _tools._transform_cache.clear()
+    lonlat = [osr.SpatialReference() for _ in range(2)]
+    for projection in lonlat:
+        projection.ImportFromEPSG(4326)
+        projection.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+    x = np.array([[3.0, 45.0]])
+    a = _tools.project_points(x, lonlat[0], utm())
+    b = _tools.project_points(x, lonlat[1], utm())
+    np.testing.assert_array_equal(a, b)
+    np.testing.assert_allclose(a, [[500000.0, 4982950.4]], atol=0.1)
+    assert len(_tools._transform_cache) == 1
+    # The same projection with the other axis order is another transformation.
+    lonlat[1].SetAxisMappingStrategy(osr.OAMS_AUTHORITY_COMPLIANT)
+    np.testing.assert_allclose(_tools.project_points(x[:, ::-1], lonlat[1], utm()), a)
+    assert len(_tools._transform_cache) == 2
+    for zone in range(1, 61):
+        target = osr.SpatialReference()
+        target.ImportFromEPSG(32600 + zone)
+        _tools.project_points(x, lonlat[0], target)
+    assert len(_tools._transform_cache) <= _tools._TRANSFORM_CACHE_SIZE

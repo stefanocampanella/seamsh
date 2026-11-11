@@ -89,14 +89,12 @@ def test_errors_are_returned_not_fatal():
     # A seed that is not a triangle.
     with pytest.raises(RuntimeError, match="inconsistent triangulation"):
         gen_boundaries(RING_POINTS, RING_TRIANGLES, 99, np.full(8, 1.0))
-    # Three triangles on one edge (0, 1): not a triangulation of the plane. Whatever comes out, it
-    # must come back.
+    # Three triangles on one edge (0, 1): not a triangulation of the plane. (Two of them used to be
+    # paired as neighbours and the third left alone, without notice.)
     points = [[0, 0], [10, 0], [5, 8], [5, -8], [5, 3]]
     triangles = [[0, 1, 2], [1, 0, 3], [0, 1, 4]]
-    try:
+    with pytest.raises(RuntimeError, match="inconsistent triangulation"):
         gen_boundaries(points, triangles, 0, np.full(5, 1.0))
-    except RuntimeError as error:
-        assert "inconsistent triangulation" in str(error)
 
 
 def test_several_seeds():
@@ -129,3 +127,20 @@ def test_inside_out_slivers_do_not_break_the_walks():
         result, curves = gen_boundaries(points, mixed, 1, np.full(5, 1.0))
         assert len(curves) == 1
         assert sorted(map(tuple, np.round(result, 6))) == sorted(map(tuple, np.round(reference, 6)))
+
+
+def test_boundary_points_move_towards_the_domain():
+    """Each boundary point is moved by size/50 along the normals of the two segments that meet on
+    it, into the domain: the corners of the outer square move inwards, those of the hole outwards
+    (into the ring), by the same amount in x and y. (The normals of the two segments before the
+    point were used: corners moved sideways.)"""
+    size = 2.5
+    points, curves = gen_boundaries(RING_POINTS, RING_TRIANGLES, 0, np.full(8, size))
+    outer, inner = (points[ids[:-1]] for _, ids in curves)
+    step = size / 50
+    for corner in RING_POINTS[:4]:
+        inwards = np.sign(5 - np.array(corner)) * step
+        assert np.abs(outer - (corner + inwards)).max(axis=1).min() < 1e-12
+    for corner in RING_POINTS[4:]:
+        outwards = np.sign(np.array(corner) - 5) * step
+        assert np.abs(inner - (corner + outwards)).max(axis=1).min() < 1e-12

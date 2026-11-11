@@ -26,8 +26,6 @@ from itertools import chain
 from typing import Callable
 
 import numpy as np
-import tqdm
-import tqdm.contrib
 from osgeo import ogr, osr
 from scipy.spatial import Delaunay, cKDTree
 
@@ -151,22 +149,30 @@ def _split_curves(curves: list, is_break: np.ndarray, loops=()) -> list:
     return new_curves
 
 
-def _chain_into_loops(curves: list, n_points: int) -> list:
+def _chain_into_loops(curves: list, points: np.ndarray) -> list:
     """Chains boundary curves that share end points into closed loops.
 
     Returns:
         The loops, each a list of (curve index, forward): the curves in order along the loop, with
         whether each is followed from its first to its last point.
+    Args:
+        curves: the boundary curves, with their `pointsid`.
+        points: the points of the domain [n, 2].
     Raises:
-        ValueError: if the curves do not form closed loops.
+        ValueError: if the curves do not form closed loops, or more than two of them meet at a
+            point (the boundary would not tell which curve follows which).
     """
     # For each point, the (curve, end) that touch it (end 0: first point, 1: last point): two in a
     # valid boundary. For each curve, its two end points.
-    point_curves = np.full([n_points, 2, 2], -1, int)
+    point_curves = np.full([points.shape[0], 2, 2], -1, int)
     curve_points = np.ndarray([len(curves), 2], int)
     for icurve, curve in enumerate(curves):
         for end, point in ((0, curve.pointsid[0]), (1, curve.pointsid[-1])):
             curve_points[icurve, end] = point
+            if point_curves[point][1][0] != -1:
+                raise ValueError(
+                    f"Invalid topology: more than two boundary curves meet at {tuple(points[point])}"
+                )
             slot = 0 if point_curves[point][0][0] == -1 else 1
             point_curves[point][slot] = (icurve, end)
     touched = np.full((len(curves)), False, bool)
@@ -299,7 +305,7 @@ class Domain:
             offset += 1
         is_break = np.logical_and(touched, is_break)
 
-        self._curveloops = _chain_into_loops(self._curves, self._points.shape[0])
+        self._curveloops = _chain_into_loops(self._curves, self._points)
         self._curves = _split_curves(self._curves, is_break, self._curveloops)
         self._interior_curves = _split_curves(self._interior_curves, is_break)
         bbox_area = np.zeros([len(self._curveloops)])
@@ -364,7 +370,7 @@ class Domain:
             if physfield is None:
                 raise ValueError("field '" + physical_name_field + "' not found in shapefile")
         layerproj = layer.GetSpatialRef()
-        for i in tqdm.tqdm(layer, desc=f"(seamsh) Import features from '{filename}'"):
+        for i in _tools.progress(layer, desc=f"(seamsh) Import features from '{filename}'"):
             if i.geometry() is None:
                 continue
             phys = i.GetField(physfield) if physfield is not None else "boundary"
@@ -551,7 +557,7 @@ def coarsen_boundaries(
     def half_mesh_size(x, projection):
         return mesh_size(x, projection) * 0.5
 
-    for curve in tqdm.tqdm(domain._curves, desc="(seamsh) Sampling curves for coarsening"):
+    for curve in _tools.progress(domain._curves, desc="(seamsh) Sampling curves for coarsening"):
         samples = _curve_sample(curve, half_mesh_size, domain._projection)
         sampled.append(samples)
         number = tag_number.setdefault(curve.tag, len(tag_number) + 1)

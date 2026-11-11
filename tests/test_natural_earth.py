@@ -1,8 +1,9 @@
 """The whole chain on a real coastline: Natural Earth 1:110m (public domain, tests/data), in a polar
 stereographic plane centred on the North Pole, as moby-dick uses seamsh.
 
-Reference numbers were measured with seamsh f1ab87d, gmsh 4.12.1: coarsening at 100 km from a seed
-at the North Pole, then a 300 km mesh, gives 5,512 nodes in 10,284 triangles and 782 boundary edges.
+Reference numbers, measured with gmsh 4.12.1: coarsening at 100 km from a seed at the North Pole,
+then a 300 km mesh, gives 5,532 nodes in 10,323 triangles and 783 boundary edges (5,512, 10,284 and
+782 before version 0.5.0, which moves the coarsened boundary points along other normals).
 """
 
 import gmsh
@@ -90,15 +91,15 @@ def test_ocean_mesh(coarse, model):
     seamsh.gmsh.mesh(coarse, UniformOnEarth(300e3), output_srs=cartesian, smoothness=0.3)
     mesh = current_mesh()
     triangles = mesh["triangles"]
-    assert len(triangles) == pytest.approx(10284, rel=0.05)
-    assert len(np.unique(triangles)) == pytest.approx(5512, rel=0.05)
+    assert len(triangles) == pytest.approx(10323, rel=0.05)
+    assert len(np.unique(triangles)) == pytest.approx(5532, rel=0.05)
     assert n_components(mesh) == 1
     assert mesh["groups"] == ["Coastline", "domain"]
     # Boundary edges: those of one triangle only.
     edges = np.sort(np.r_[triangles[:, [0, 1]], triangles[:, [1, 2]], triangles[:, [2, 0]]], axis=1)
     _, counts = np.unique(edges, axis=0, return_counts=True)
     assert counts.max() == 2
-    assert (counts == 1).sum() == pytest.approx(782, rel=0.05)
+    assert (counts == 1).sum() == pytest.approx(783, rel=0.05)
     # On the ellipsoid, with outward normals.
     a, b, c = (mesh["x"][triangles[:, i]] for i in range(3))
     radius = np.linalg.norm(mesh["x"][np.unique(triangles)], axis=1)

@@ -24,12 +24,14 @@ pre-commit run --all-files                      # ruff (check, format), codespel
 cd doc && python gen_examples.py && make html
 ```
 
-- Runtime dependencies: `numpy`, `scipy`, `gdal>=3.1`, `gmsh`, `tqdm`; optional `shapely` (`field.Inpoly`) and `xarray`
-  (`convert_to_ugrid_mesh_file`). GDAL has no pip wheels: use conda-forge (as `.github/workflows/ci.yml` does) or a
-  container.
+- Runtime dependencies: `numpy`, `scipy`, `gdal>=3.1`, `gmsh`, `tqdm`; optional `xarray` and `netcdf4`
+  (`convert_to_ugrid_mesh_file`). GDAL has no pip wheels (nor gmsh on Linux aarch64): use conda-forge or a container.
+- GitHub CI (`.github/workflows/ci.yml`) runs on `ubuntu-latest` in a conda-forge environment made with micromamba
+  (Python 3.12 and the latest GDAL, gmsh, numpy, scipy), builds the library, then runs pytest and the hooks.
 - On JUPITER the login-node Python has none of these. Run everything in moby-dick's image, with the worktree first on
   the path: `apptainer exec --env PYTHONPATH=$PWD /e/project1/e-dev-2026d09-119/graphcast/moby-dick.sif <command>`
-  (it has gmsh 4.12, GDAL, pytest, ruff, pre-commit and gcc).
+  (it has gmsh 4.12.1 from Ubuntu, GDAL, pytest, ruff, pre-commit and gcc, but no netCDF4: the UGRID test is
+  skipped there).
 - `import seamsh` fails if `seamsh/libseamsh.so` has not been built; rebuild after every change to `seamshlib/`.
 - Metadata is in `pyproject.toml`; `setup.py` only defines the C library and the version (keep it in step with
   `CHANGELOG.rst`; upstream's GitLab CI overrides it from tags `v-*` / `w-*`). `.gitlab-ci.yml` is upstream's CI
@@ -43,7 +45,10 @@ gives each test a fresh model (`model` fixture). `test_natural_earth.py` runs th
 1:110m coastline (`tests/data`). Mesh counts are asserted within ranges, because they depend on the gmsh version.
 Every test has a docstring saying what it checks and why; every bug fix comes with a test that failed before.
 
-`quad=True` in `seamsh.gmsh.mesh` crashes inside gmsh 4.12.1 (segmentation fault in `generate`): it has no test.
+gmsh's quadrangle algorithm (`Mesh.Algorithm` 8) ends the process with a segmentation fault in builds of gmsh
+without ANN, such as Ubuntu 24.04's gmsh 4.12.1 (the one in moby-dick's image), even on a plain square; the
+conda-forge builds of gmsh 4.11 to 4.15 work. `mesh(quad=True)` therefore raises an error on such builds
+(`gmsh._gmsh_has_quad_algorithm`), and `test_quad_mesh` checks whichever applies.
 
 ## Architecture
 
@@ -86,30 +91,34 @@ Things that need several files to see:
   three adaptation passes. Physical groups are named after curve tags; the surfaces are in the group `domain`.
   Curves with no node in a surface element (outlines of islands smaller than the mesh) are taken out of their
   physical group so they are not written: gmsh refuses to delete them.
-- **Outputs must stay reproducible.** Downstream meshes are compared with references to within rounding: anything
-  that changes sampled points, the jitter, the collapses or the gmsh call order changes meshes. One known defect is
-  kept for that reason and documented in `extract_boundaries`: the inward shift of a boundary point uses the normals
-  of the two segments before it, not of the two that meet on it.
+- **Outputs are meant to be reproducible.** Downstream meshes are compared with references to within rounding:
+  anything that changes sampled points, the jitter, the collapses, the inward shift or the gmsh call order changes
+  meshes (same quality, other nodes). Such a change must be deliberate, and reported with before/after numbers.
 
 ## License
 
-Inconsistent: the README and `setup.py` say GPLv3, `COPYING.txt` is the GPLv3 text, file headers say LGPL v3 or
-later, `LICENSE.txt` is a placeholder. Keep the existing header on source files; do not relicense.
+Stated inconsistently: `LICENSE.txt` and the file headers say LGPL v3 or later (copyright UCLouvain), the README
+and the classifier in `pyproject.toml` say GPL v3, `COPYING.txt` is the GPL v3 text and there is no copy of the
+LGPL. `seamshlib/polymesh.c` comes from gmsh (GPL v2 or later), which makes the compiled library GPL in any case.
+Keep the existing header on source files; do not relicense.
 
 ## Refactoring kit (untracked)
 
 `refactoring-kit/`, when present, is local material and must not be committed (large data, Apache-2.0 files from
-another project). `PR_GUIDE.md` and `NOTES_seamsh.md` give the context of the refactoring. It holds reference meshes
-made with `f1ab87d`; after a change that could affect outputs, from `refactoring-kit/`:
+another project). `PR_GUIDE.md` and `NOTES_seamsh.md` give the context of the refactoring. It holds reference
+outputs: `validation/reference/` made with `f1ab87d`, and `validation/reference_0.5.0/` made with version 0.5.0,
+whose meshes differ from the former (the boundary points are shifted along other normals). After a change that
+could affect outputs, from `refactoring-kit/`:
 
 ```bash
 # Seconds: the 1:110m coastline mesh must be identical to the reference
 python validation/validate_seamsh.py mesh --shapefile data/ne_110m_coastline/ne_110m_coastline.shp \
-    --coarsen-size 100000 --mesh-size 300000 --reference validation/reference/mesh_110m_300km.msh --require-identical
+    --coarsen-size 100000 --mesh-size 300000 --reference validation/reference_0.5.0/mesh_110m_300km.msh \
+    --require-identical
 
 # ~20 s: the downstream 120 km configuration
 python validation/validate_seamsh.py mesh --coarsen-size 10000 --mesh-size 120000 \
-    --reference validation/reference/mesh_10m_120km.msh --require-identical
+    --reference validation/reference_0.5.0/mesh_10m_120km.msh --require-identical
 
 # Several seeds: every "ocean" probe inside, every "land" probe outside
 python validation/validate_seamsh.py coarsen --coarsen-size 10000 --seed 43.5,34 --seed 46,36.5 --strict-probes

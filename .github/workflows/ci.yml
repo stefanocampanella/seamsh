@@ -25,7 +25,6 @@ jobs:
             numpy
             scipy
             tqdm
-            shapely
             xarray
             netcdf4
             setuptools

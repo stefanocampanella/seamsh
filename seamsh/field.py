@@ -27,20 +27,13 @@ import logging
 from itertools import chain
 
 import numpy as np
-import tqdm
 from osgeo import gdal, osr
 from scipy.spatial import cKDTree
 
 from . import _tools
 from .geometry import Domain as _Domain
+from .geometry import _points_in_polygon
 from .gmsh import _curve_sample
-
-try:
-    import shapely.geometry
-
-    shapely_available = True
-except ImportError:
-    shapely_available = False
 
 __all__ = ["Distance", "Raster", "Inpoly"]
 
@@ -79,7 +72,7 @@ class Distance:
             return np.full([x.shape[0]], sampling)
 
         icurve = 0
-        for curve in tqdm.tqdm(
+        for curve in _tools.progress(
             all_curves_iter, desc="(seamsh) Sampling features for distance computation"
         ):
             if (tags is None) or (curve.tag in tags):
@@ -162,8 +155,6 @@ class Inpoly:
             tags: List of physical tags specifying the curve from the domain.
                 if None, all curves are taken into account.
         """
-        if not shapely_available:
-            raise ValueError("The shapely python module is required to use Inpoly fields.")
         logger.info("Initialisation Inpoly")
         self._projection = domain._projection
 
@@ -178,7 +169,7 @@ class Inpoly:
                         raise ValueError(
                             f"Inpoly needs closed curves: a curve tagged '{curve.tag}' is open"
                         )
-                    self._area.append(shapely.geometry.Polygon(domain._points[ptsid[:-1]]))
+                    self._area.append(domain._points[ptsid])
 
     def __call__(self, x: np.ndarray, projection: osr.SpatialReference) -> np.ndarray:
         """Indicate for each point of x if it belongs to a set of polygons.
@@ -193,10 +184,6 @@ class Inpoly:
         x = _tools.project_points(x, projection, self._projection)
 
         inpoly = np.full(x.shape[0], False)
-        xs = [shapely.geometry.Point(xi[0], xi[1]) for xi in x]
         for polygon in self._area:
-            for i, xsi in enumerate(xs):
-                if not inpoly[i]:
-                    inpoly[i] = xsi.within(polygon)
-
+            inpoly |= _points_in_polygon(x, polygon)
         return inpoly

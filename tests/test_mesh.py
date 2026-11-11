@@ -276,3 +276,128 @@ def test_coarsened_basins_are_meshed_separately(model):
     assert not ((centroids[:, 0] > 42e3) & (centroids[:, 0] < 58e3)).any()
     assert (centroids[:, 0] < 40e3).sum() > 50 and (centroids[:, 0] > 60e3).sum() > 50
     assert (signed_areas(mesh) > 0).all()
+
+
+def test_gmsh_options_are_left_as_they_were(model):
+    """gmsh options are global: those that `mesh` sets for itself must be put back, so that they do
+    not change what the caller meshes next. Only the file version is meant to stay."""
+    names = seamsh.gmsh._MESH_OPTIONS
+    defaults = {name: gmsh.option.getNumber(name) for name in [*names, "Mesh.MshFileVersion"]}
+    try:
+        gmsh.option.setNumber("Mesh.Algorithm", 5)
+        gmsh.option.setNumber("Mesh.CharacteristicLengthMax", 1e21)
+        before = {name: gmsh.option.getNumber(name) for name in names}
+        for smoothness in (0, 0.3):
+            gmsh.clear()
+            gmsh.model.add("test")
+            seamsh.gmsh.mesh(
+                square_with_island(), uniform(20e3), smoothness=smoothness, version=2.2
+            )
+            assert {name: gmsh.option.getNumber(name) for name in names} == before
+        assert gmsh.option.getNumber("Mesh.MshFileVersion") == 2.2
+    finally:
+        for name, value in defaults.items():
+            gmsh.option.setNumber(name, value)
+
+
+def test_size_smoothing_does_not_depend_on_the_units(model):
+    """The same domain and sizes in kilometres and in metres give the same mesh. The size is small
+    in a disc and large elsewhere, so the mesh depends on the smoothing of the size; its stopping
+    tolerance used to be 1 whatever the units, too coarse for sizes around 1 (682 triangles
+    against 687)."""
+    from domains import rectangle
+
+    from seamsh.geometry import Domain
+
+    def n_triangles(scale):
+        srs = utm()
+        domain = Domain(srs)
+        domain.add_boundary_curve(rectangle(0, 0, 100 * scale, 100 * scale, 5 * scale), "c", srs)
+
+        def size(x, projection):
+            near = np.linalg.norm(x[:, :2] - 50 * scale, axis=1) < 5 * scale
+            return np.where(near, 1.0, 30.0) * scale
+
+        gmsh.clear()
+        gmsh.model.add("test")
+        seamsh.gmsh.mesh(domain, size)
+        return len(current_mesh()["triangles"])
+
+    kilometres, metres = n_triangles(1.0), n_triangles(1000.0)
+    assert kilometres == pytest.approx(metres, rel=0.003)
+    assert metres > 500
+
+
+def test_progress_bars_can_be_turned_off(model, capfd):
+    """`seamsh.show_progress(False)` silences the progress bars (they go to the standard error)."""
+    from seamsh.geometry import coarsen_boundaries
+
+    try:
+        seamsh.show_progress(False)
+        coarsen_boundaries(square_with_island(), (10e3, 10e3), utm(), uniform(10e3))
+        assert "(seamsh)" not in capfd.readouterr().err
+        seamsh.show_progress(True)
+        coarsen_boundaries(square_with_island(), (10e3, 10e3), utm(), uniform(10e3))
+        assert "(seamsh) Sampling curves" in capfd.readouterr().err
+    finally:
+        seamsh.show_progress(True)
+
+
+def test_convert_to_ugrid(model, tmp_path):
+    """The UGRID file holds the nodes, the triangles as indices of the nodes (whatever the node
+    tags of the mesh), the coordinates with the units of the projection, and the variables."""
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("netCDF4")
+    seamsh.gmsh.mesh(square_with_island(), uniform(20e3))
+    # Node tags that do not start from 1.
+    gmsh.model.mesh.renumberNodes()
+    tags, coordinates, _ = gmsh.model.mesh.getNodes()
+    gmsh.model.mesh.renumberNodes(tags, tags + 1000)
+    mesh = current_mesh()
+    gmsh.write(str(tmp_path / "mesh.msh"))
+    variables = {
+        "depth": {
+            "callable_func": lambda x, projection: x[:, 0] / 1e3,
+            "long_name": "depth",
+            "standard_name": "sea_floor_depth_below_geoid",
+            "units": "m",
+        }
+    }
+    seamsh.gmsh.convert_to_ugrid_mesh_file(
+        str(tmp_path / "mesh.msh"), variables, utm(), str(tmp_path / "mesh.nc")
+    )
+    ds = xr.open_dataset(tmp_path / "mesh.nc")
+    assert ds["element"].shape == (len(mesh["triangles"]), 3)
+    assert int(ds["element"].min()) >= 0 and int(ds["element"].max()) < ds.sizes["node"]
+    x, y = ds["longitude"].values, ds["latitude"].values
+    corners = np.stack([x[ds["element"].values], y[ds["element"].values]], axis=-1)
+    a, b, c = corners[:, 0], corners[:, 1], corners[:, 2]
+    areas = 0.5 * np.abs(
+        (b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1]) - (b[:, 1] - a[:, 1]) * (c[:, 0] - a[:, 0])
+    )
+    np.testing.assert_allclose(areas.sum(), 100e3**2 - 20e3**2, rtol=0.02)
+    assert ds["longitude"].attrs["units"] == "m"
+    assert ds["longitude"].attrs["standard_name"] == "projection_x_coordinate"
+    np.testing.assert_allclose(ds["depth"].values, x / 1e3)
+
+
+def test_quad_mesh(model):
+    """`quad=True` gives quadrangles only, about half the prescribed size, with the boundary
+    elements kept. Builds of gmsh that cannot do it (they crash: see `_gmsh_has_quad_algorithm`)
+    are refused with an error instead."""
+    if not seamsh.gmsh._gmsh_has_quad_algorithm():
+        with pytest.raises(RuntimeError, match="ANN"):
+            seamsh.gmsh.mesh(square_with_island(), uniform(20e3), quad=True)
+        return
+    seamsh.gmsh.mesh(square_with_island(), uniform(20e3), quad=True)
+    types = [int(t) for t in gmsh.model.mesh.getElements(2)[0]]
+    assert types == [3]
+    n_quads = len(gmsh.model.mesh.getElementsByType(3)[0])
+    # Area / (size / 2)^2, roughly.
+    assert 50 < n_quads < 200
+    assert len(gmsh.model.mesh.getElementsByType(1)[0]) > 30
+    assert sorted(gmsh.model.getPhysicalName(d, t) for d, t in gmsh.model.getPhysicalGroups()) == [
+        "coast",
+        "domain",
+        "island",
+    ]

@@ -24,6 +24,7 @@ gmsh keeps its state in the process: the caller initializes it (`gmsh.initialize
 on the current model, and the caller writes the file (`gmsh.write`).
 """
 
+import contextlib
 import logging
 import os
 import struct
@@ -31,7 +32,6 @@ import uuid
 
 import gmsh
 import numpy as np
-import tqdm.contrib
 from osgeo import ogr, osr
 
 from . import _tools
@@ -268,15 +268,16 @@ def _mesh_bgrid(
         dedges = xy[edges[:, 0]] - xy[edges[:, 1]]
         elength = np.hypot(dedges[:, 0], dedges[:, 1])
         # Smoothing: along each edge, the size at one end is at most the size at the other end plus
-        # smoothness x length. Repeated until no size changes by 1 or more (an absolute tolerance,
-        # in the units of the projection: fine for sizes in metres).
+        # smoothness x length. Repeated until no size changes by more than a thousandth of the
+        # smallest size (and never more than 1, the tolerance that was used whatever the units).
+        tolerance = min(1.0, 1e-3 * float(np.min(v)))
         while True:
             vo = v.copy()
             cond = v[edges[:, 0]] > v[edges[:, 1]] + elength * smoothness
             v[edges[cond, 0]] = v[edges[cond, 1]] + elength[cond] * smoothness
             cond = v[edges[:, 1]] > v[edges[:, 0]] + elength * smoothness
             v[edges[cond, 1]] = v[edges[cond, 0]] + elength[cond] * smoothness
-            if np.max(np.abs(v - vo)) < 1:
+            if np.max(np.abs(v - vo)) < tolerance:
                 break
         # Refinement: an edge more than twice as long as the smaller size at its ends is cut in
         # two, so that the background mesh resolves the variations of the size.
@@ -323,7 +324,7 @@ def _mesh_successive(
 
     # 1D mesh
     curves = gmsh.model.getEntities(1)
-    for dim, tag in tqdm.tqdm(curves, desc="(seamsh) Sample curves for mesh size"):
+    for dim, tag in _tools.progress(curves, desc="(seamsh) Sample curves for mesh size"):
         _, xi, size = _curve_sample_gmsh_tag(
             tag, lambda x, p: mesh_size(x, p) / 2, domain._projection
         )
@@ -376,6 +377,47 @@ def _mesh_successive(
         gmsh.model.mesh.generate(2)
         gmsh.view.remove(sf_view)
     gmsh.model.mesh.field.remove(bg_field)
+
+
+def _gmsh_has_quad_algorithm() -> bool:
+    """Whether the "Frontal-Delaunay for Quads" algorithm (Mesh.Algorithm 8) can be used.
+
+    It ends the process with a segmentation fault, even on a plain square, in gmsh builds without
+    the ANN library: Ubuntu 24.04's gmsh 4.12.1 package is one, while the conda-forge builds of
+    gmsh 4.11 to 4.15, which have ANN, work.
+    """
+    options = gmsh.option.getString("General.BuildOptions").split()
+    return any(option.split("[")[0] == "ANN" for option in options)
+
+
+# The gmsh options that `mesh` sets for its own use, and puts back afterwards.
+_MESH_OPTIONS = [
+    "Mesh.CharacteristicLengthFromPoints",
+    "Mesh.LcIntegrationPrecision",
+    "Mesh.CharacteristicLengthFactor",
+    "Mesh.CharacteristicLengthFromCurvature",
+    "Mesh.CharacteristicLengthExtendFromBoundary",
+    "Mesh.CharacteristicLengthFromParametricPoints",
+    "Mesh.CharacteristicLengthMin",
+    "Mesh.CharacteristicLengthMax",
+    "Mesh.RecombineAll",
+    "Mesh.RecombinationAlgorithm",
+    "Mesh.Algorithm",
+    "Mesh.SubdivisionAlgorithm",
+    "Mesh.SecondOrderLinear",
+]
+
+
+@contextlib.contextmanager
+def _restored_options(names):
+    """Puts the gmsh options `names` back to their current values on exit: gmsh options are global,
+    and would otherwise affect whatever the caller meshes next."""
+    saved = {name: gmsh.option.getNumber(name) for name in names}
+    try:
+        yield
+    finally:
+        for name, value in saved.items():
+            gmsh.option.setNumber(name, value)
 
 
 def _drop_curves_outside_the_mesh():
@@ -458,7 +500,7 @@ def mesh(
     curves, and forced points, are in physical groups named by their physical tags, the surface in
     the physical group "domain". Curves that end up in no element of the surface (the outlines of
     islands much smaller than the mesh size) are left out of their physical group, hence of the
-    file.
+    file. The gmsh options are left as they were, except "Mesh.MshFileVersion", set to `version`.
 
     Args:
         domain: the input geometry
@@ -479,31 +521,39 @@ def mesh(
         quad: if True, generate quadrangles instead of triangles. This a achieved by
             generating a quad-dominant mesh and then splitting all elements (quads and
             triangles) into quads. So the resulting mesh size is half the prescribed one.
+    Raises:
+        RuntimeError: with quad=True, if this build of gmsh cannot run the quadrangle algorithm.
     """
     logger.info("Generate mesh")
     if transfinite_curves is None:
         transfinite_curves = {}
+    if quad and not _gmsh_has_quad_algorithm():
+        raise RuntimeError(
+            "quad=True needs a gmsh built with ANN: in this build "
+            f"(gmsh {gmsh.__version__}) the quadrangle algorithm crashes the process"
+        )
     domain._build_topology()
-    _create_gmsh_geometry(domain)
-    for dim, tag in gmsh.model.get_physical_groups(1):
-        pname = gmsh.model.getPhysicalName(dim, tag)
-        if pname in transfinite_curves:
-            for etag in gmsh.model.getEntitiesForPhysicalGroup(dim, tag):
-                gmsh.model.mesh.set_transfinite_curve(etag, transfinite_curves[pname])
-    if quad:
-        gmsh.option.setNumber("Mesh.RecombineAll", 1)
-        gmsh.option.setNumber("Mesh.RecombinationAlgorithm", 1)
-        gmsh.option.setNumber("Mesh.Algorithm", 8)
+    with _restored_options(_MESH_OPTIONS):
+        _create_gmsh_geometry(domain)
+        for dim, tag in gmsh.model.get_physical_groups(1):
+            pname = gmsh.model.getPhysicalName(dim, tag)
+            if pname in transfinite_curves:
+                for etag in gmsh.model.getEntitiesForPhysicalGroup(dim, tag):
+                    gmsh.model.mesh.set_transfinite_curve(etag, transfinite_curves[pname])
+        if quad:
+            gmsh.option.setNumber("Mesh.RecombineAll", 1)
+            gmsh.option.setNumber("Mesh.RecombinationAlgorithm", 1)
+            gmsh.option.setNumber("Mesh.Algorithm", 8)
 
-    if smoothness > 0:
-        _mesh_bgrid(domain, mesh_size, smoothness)
-    else:
-        _mesh_successive(domain, mesh_size, intermediate_file_name)
+        if smoothness > 0:
+            _mesh_bgrid(domain, mesh_size, smoothness)
+        else:
+            _mesh_successive(domain, mesh_size, intermediate_file_name)
 
-    if quad:
-        gmsh.option.setNumber("Mesh.SubdivisionAlgorithm", 1)
-        gmsh.option.setNumber("Mesh.SecondOrderLinear", 1)
-        gmsh.model.mesh.refine()
+        if quad:
+            gmsh.option.setNumber("Mesh.SubdivisionAlgorithm", 1)
+            gmsh.option.setNumber("Mesh.SecondOrderLinear", 1)
+            gmsh.model.mesh.refine()
 
     _drop_curves_outside_the_mesh()
     if output_srs is not None:
@@ -609,7 +659,8 @@ def convert_to_ugrid_mesh_file(
         input_filename : any mesh file readable by gmsh (typically
             a .msh file)
         dico_var : a dictionary of variable name with all required information
-        projection: the projection assigned to the mnt layer
+        projection: the coordinate system of the mesh; it is passed to the callables of
+            dico_var and tells the units of the coordinates
         output_filename : netcdf ugrid mesh file (.nc)
     """
     if not xarray_available:
@@ -622,31 +673,32 @@ def convert_to_ugrid_mesh_file(
     _, tri_n = gmsh.model.mesh.getElementsByType(2)
     tri_n = tri_n.reshape([-1, 3])
 
-    _, nodes, _ = gmsh.model.mesh.getNodes()
+    node_tags, nodes, _ = gmsh.model.mesh.getNodes()
     nodes = nodes.reshape([-1, 3])
     x = nodes[:, 0]
     y = nodes[:, 1]
 
-    element = np.subtract(tri_n, 1)
+    # Connectivity as indices in the node arrays (node tags need not be 1, 2, 3, ...).
+    node_index = np.full(int(node_tags.max()) + 1, -1, dtype=np.int64)
+    node_index[node_tags.astype(np.int64)] = np.arange(len(node_tags))
+    element = node_index[tri_n.astype(np.int64)]
+    # The coordinates are those of the mesh, in `projection`: degrees or a length unit.
+    if projection.IsGeographic():
+        x_attrs = {"standard_name": "longitude", "units": "degrees_east"}
+        y_attrs = {"standard_name": "latitude", "units": "degrees_north"}
+    else:
+        unit = "m" if projection.GetLinearUnits() == 1.0 else projection.GetLinearUnitsName()
+        x_attrs = {"standard_name": "projection_x_coordinate", "units": unit}
+        y_attrs = {"standard_name": "projection_y_coordinate", "units": unit}
     mesh_topology = np.array([-2147483647], dtype="int32")
 
     ds = xr.Dataset()
 
     ds.coords["longitude"] = (("node"), np.double(x))
-    ds["longitude"].attrs = {
-        "long_name": "longitude",
-        "standard_name": "longitude",
-        "units": "m",
-        "positive": "east",
-    }
+    ds["longitude"].attrs = {"long_name": "longitude", "positive": "east", **x_attrs}
 
     ds.coords["latitude"] = (("node"), np.double(y))
-    ds["latitude"].attrs = {
-        "long_name": "latitude",
-        "standard_name": "latitude",
-        "units": "m",
-        "positive": "north",
-    }
+    ds["latitude"].attrs = {"long_name": "latitude", "positive": "north", **y_attrs}
 
     ds["element"] = (("nele", "nvertex"), element)
     ds["element"].attrs = {

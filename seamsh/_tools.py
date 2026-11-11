@@ -22,13 +22,38 @@
 (`seamshlib/`, built as `libseamsh.so` next to this file and loaded with ctypes)."""
 
 import ctypes
+import logging
 import os
 
 import numpy as np
+import tqdm
 from osgeo import osr
 
-# Coordinate transformations are costly to build: they are kept, by pair of projection objects.
+logger = logging.getLogger(__name__)
+
+# Coordinate transformations are costly to build: the last ones used are kept, by the definitions
+# of the two projections (not by the objects: equal projections built twice share one entry).
 _transform_cache = {}
+_TRANSFORM_CACHE_SIZE = 64
+
+_show_progress = True
+
+
+def show_progress(enabled: bool) -> None:
+    """Turns the progress bars of seamsh on (the default) or off."""
+    global _show_progress
+    _show_progress = bool(enabled)
+
+
+def progress(iterable, desc: str):
+    """`iterable`, with a progress bar on the standard error unless they are turned off."""
+    return tqdm.tqdm(iterable, desc=desc, disable=not _show_progress)
+
+
+def _projection_key(projection: osr.SpatialReference) -> tuple:
+    """What defines a projection for a transformation: its WKT, and the order of its axes in the
+    data, which is a setting of the object that the WKT does not hold."""
+    return projection.ExportToWkt(), tuple(projection.GetDataAxisToSRSAxisMapping())
 
 
 def project_points(x, pfrom: osr.SpatialReference, pto: osr.SpatialReference) -> np.ndarray:
@@ -36,10 +61,13 @@ def project_points(x, pfrom: osr.SpatialReference, pto: osr.SpatialReference) ->
     [n, axes of pto]. When both projections are the same, only the extra columns are dropped."""
     x = np.asarray(x)[:, : pfrom.GetAxesCount()]
     if not pfrom.IsSame(pto):
-        trans = _transform_cache.get((pfrom, pto))
+        key = (_projection_key(pfrom), _projection_key(pto))
+        trans = _transform_cache.get(key)
         if trans is None:
+            if len(_transform_cache) >= _TRANSFORM_CACHE_SIZE:
+                _transform_cache.clear()
             trans = osr.CoordinateTransformation(pfrom, pto)
-            _transform_cache[(pfrom, pto)] = trans
+            _transform_cache[key] = trans
         x = trans.TransformPoints(x)
         x = np.asarray(x)[:, : pto.GetAxesCount()]
     return x
@@ -73,6 +101,7 @@ lib.gen_boundaries_from_points.argtypes = [
     ctypes.POINTER(ctypes.POINTER(ctypes.c_double)),
     ctypes.POINTER(ctypes.c_int),
     ctypes.POINTER(ctypes.POINTER(ctypes.c_int)),
+    ctypes.POINTER(ctypes.c_int),
     ctypes.POINTER(ctypes.c_int),
 ]
 lib.libcfree.restype = None
@@ -112,7 +141,7 @@ def gen_boundaries(
     triangles = np.array(triangles, dtype=np.int32, order="C")
     sizes = np.array(sizes, dtype=np.float64, order="C")
     seeds = np.atleast_1d(np.array(seeds, dtype=np.int32, order="C"))
-    n_lines, n_points = ctypes.c_int(), ctypes.c_int()
+    n_lines, n_points, converged = ctypes.c_int(), ctypes.c_int(), ctypes.c_int()
     p_points = ctypes.POINTER(ctypes.c_double)()
     p_lines = ctypes.POINTER(ctypes.c_int)()
     error = lib.gen_boundaries_from_points(
@@ -128,10 +157,16 @@ def gen_boundaries(
         ctypes.byref(n_points),
         ctypes.byref(p_lines),
         ctypes.byref(n_lines),
+        ctypes.byref(converged),
     )
     if error != 0:
         reason = _COARSENING_ERRORS.get(error, f"error {error}")
         raise RuntimeError(f"Boundary coarsening failed: {reason}")
+    if not converged.value:
+        logger.warning(
+            "Boundary coarsening stopped before the end: the boundary may be finer than the mesh "
+            "size in places"
+        )
     # The results are allocated by the C code: copy them and give the memory back.
     points = np.empty((0, 2))
     lines = np.empty((0,), np.int32)

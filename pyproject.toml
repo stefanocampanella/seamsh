@@ -24,11 +24,9 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-# field.Inpoly
-shapely = ["shapely"]
 # gmsh.convert_to_ugrid_mesh_file
 ugrid = ["xarray", "netcdf4"]
-dev = ["pytest", "ruff", "pre-commit", "shapely"]
+dev = ["pytest", "ruff", "pre-commit"]
 
 [project.urls]
 Homepage = "https://git.immc.ucl.ac.be/jlambrechts/seamsh"
