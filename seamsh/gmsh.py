@@ -211,7 +211,8 @@ def _create_gmsh_geometry(domain: _geometry.Domain) -> list:
     for curve_index, forward in loop:
       curve = domain._curves[curve_index]
       tags = _gmsh_curve_geo(curve.curve_type, curve.pointsid)
-      curve_groups.setdefault(curve.tag, []).extend(tags)
+      if curve.tag not in (None, ""):  # unset or empty: in no physical group
+        curve_groups.setdefault(curve.tag, []).extend(tags)
       # gmsh takes a curve backwards when its tag is negative.
       loop_curves.extend(tags if forward else [-t for t in reversed(tags)])
     loop_tags.append(gmsh.model.geo.addCurveLoop(loop_curves))
@@ -243,12 +244,14 @@ def _create_gmsh_geometry(domain: _geometry.Domain) -> list:
   embedded_curves = [[] for _ in surfaces]
   for curve, region in zip(domain._interior_curves, curve_regions):
     tags = _gmsh_curve_geo(curve.curve_type, curve.pointsid)
-    curve_groups.setdefault(curve.tag, []).extend(tags)
+    if curve.tag not in (None, ""):
+      curve_groups.setdefault(curve.tag, []).extend(tags)
     embedded_curves[region].extend(tags)
   point_groups = {}  # physical tag -> gmsh points
   embedded_points = [[] for _ in surfaces]
   for point, region in zip(domain._interior_points, point_regions):
-    point_groups.setdefault(point.tag, []).append(point.pointid + 1)
+    if point.tag not in (None, ""):
+      point_groups.setdefault(point.tag, []).append(point.pointid + 1)
     embedded_points[region].append(point.pointid + 1)
   gmsh.model.geo.synchronize()
   for surface, curves, points in zip(surfaces, embedded_curves, embedded_points):
@@ -510,16 +513,19 @@ def _drop_curves_outside_the_mesh():
   triangle uses. gmsh does not let us delete a curve on the boundary of a meshed surface (nor its
   mesh), but it writes only the elements of physical groups.
   """
+  # Whether each node (by tag) is in a surface element: a table, not a Python set of every node of every triangle
+  # (upstream's 8db84ce and adddf85).
   surface_nodes = gmsh.model.mesh.getElements(2)[2]
-  used = set(np.concatenate(surface_nodes).tolist()) if surface_nodes else set()
+  surface_nodes = np.concatenate(surface_nodes).astype(np.int64) if surface_nodes else np.zeros(0, np.int64)
+  used = np.zeros(int(gmsh.model.mesh.getMaxNodeTag()) + 1, bool)
+  used[surface_nodes] = True
   n_dropped = 0
   for dim, group in gmsh.model.getPhysicalGroups(1):
     curves = gmsh.model.getEntitiesForPhysicalGroup(dim, group)
     kept = []
     for curve in curves:
       curve_nodes = gmsh.model.mesh.getElements(dim, int(curve))[2]
-      nodes = np.concatenate(curve_nodes).tolist() if curve_nodes else []
-      if used.intersection(nodes):
+      if curve_nodes and used[np.concatenate(curve_nodes).astype(np.int64)].any():
         kept.append(int(curve))
     if len(kept) == len(curves):
       continue
@@ -533,14 +539,25 @@ def _drop_curves_outside_the_mesh():
     logger.info("%d curves smaller than the mesh size left out of the mesh", n_dropped)
 
 
+def _stored_projection() -> osr.SpatialReference | None:
+  """The projection stored in the current model (the attribute "Projection", ["WKT", wkt], that `mesh` writes), or
+  None. gmsh gives back a value written on several lines (e.g. a pretty-printed WKT) as several strings: they are
+  joined (upstream's c873f34; only the first line was read)."""
+  stored = gmsh.model.get_attribute("Projection")
+  if len(stored) < 2 or stored[0] != "WKT":
+    return None
+  projection = osr.SpatialReference()
+  projection.ImportFromWkt("\n".join(stored[1:]))
+  return projection
+
+
 def _reproject(input_srs, output_srs):
   """Moves the nodes (and points) of the current model from `input_srs` (None: the projection
   stored in the model) to `output_srs`."""
   if input_srs is None:
-    p = gmsh.model.get_attribute("Projection")
-    if len(p) == 2 and p[0] == "WKT":
-      input_srs = osr.SpatialReference()
-      input_srs.ImportFromWkt(p[1])
+    input_srs = _stored_projection()
+    if input_srs is None:
+      raise ValueError("No projection given, and none stored in the mesh")
   ntags, nx, _ = gmsh.model.mesh.get_nodes()
   nx = nx.reshape(-1, 3)
   nx = project_points(nx, input_srs, output_srs)
@@ -668,13 +685,19 @@ def reproject(
       output_version: msh file version (typically 2.0 or 4.0)
   """
   gmsh.model.add(str(uuid.uuid4()))
-  gmsh.open(input_filename)
-  _reproject(input_srs, output_srs)
-  gmsh.option.setNumber("Mesh.MshFileVersion", output_version)
-  if output_srs is not None:
-    gmsh.model.set_attribute("Projection", ["WKT", output_srs.ExportToWkt()])
-  gmsh.write(output_filename)
-  gmsh.model.remove()
+  try:
+    gmsh.open(input_filename)
+    _reproject(input_srs, output_srs)
+    gmsh.option.setNumber("Mesh.MshFileVersion", output_version)
+    if output_srs is not None:
+      gmsh.model.set_attribute("Projection", ["WKT", output_srs.ExportToWkt()])
+    # The nodes keep their numbers in MSH 2 too, where gmsh renumbers them from 1 by default (upstream's ce6ec1a and
+    # 6442e2e): data kept by node number next to the mesh stays valid. gmsh 4.12 and older ignore the option.
+    with _restored_options(["Mesh.PreserveNumberingMsh2"]):
+      gmsh.option.setNumber("Mesh.PreserveNumberingMsh2", 1)
+      gmsh.write(output_filename)
+  finally:
+    gmsh.model.remove()
 
 
 def convert_to_gis(input_filename: str, projection: osr.SpatialReference | None, output_filename: str) -> None:
@@ -701,10 +724,7 @@ def convert_to_gis(input_filename: str, projection: osr.SpatialReference | None,
     shpdriver.DeleteDataSource(output_filename)
   out_data_source = shpdriver.CreateDataSource(output_filename)
   if projection is None:
-    p = gmsh.model.get_attribute("Projection")
-    if len(p) == 2 and p[0] == "WKT":
-      projection = osr.SpatialReference()
-      projection.ImportFromWkt(p[1])
+    projection = _stored_projection()
   out_layer = out_data_source.CreateLayer("mesh", geom_type=ogr.wkbPolygon, srs=projection)
   out_layer.CreateField(ogr.FieldDefn("id", ogr.OFTInteger))
   id_field = out_layer.FindFieldIndex("id", 1)
@@ -760,10 +780,7 @@ def convert_to_ugrid_mesh_file(
     tri_n = tri_n.reshape([-1, 3])
     node_tags, nodes, _ = gmsh.model.mesh.getNodes()
     if projection is None:
-      stored = gmsh.model.get_attribute("Projection")
-      if len(stored) == 2 and stored[0] == "WKT":
-        projection = osr.SpatialReference()
-        projection.ImportFromWkt(stored[1])
+      projection = _stored_projection()
   finally:
     gmsh.model.remove()
   if projection is None:

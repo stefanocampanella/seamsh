@@ -286,6 +286,97 @@ def test_convert_to_gis_and_reproject(model, tmp_path):
   assert -1.6 < mesh["x"][:, 0].min() < -1.4 and mesh["x"][:, 1].max() < 1.0
 
 
+def test_projection_stored_on_several_lines_is_read(model, tmp_path):
+  """A projection attribute written on several lines (e.g. a pretty-printed WKT, by another tool) comes back from
+  gmsh as several strings: they are joined. Only the first line was read, and reproject failed (upstream's c873f34).
+  """
+  seamsh.gmsh.mesh(square_with_island(), uniform(20e3))
+  gmsh.model.set_attribute("Projection", ["WKT", utm().ExportToPrettyWkt()])
+  msh = str(tmp_path / "pretty.msh")
+  gmsh.write(msh)
+  gmsh.clear()
+  gmsh.open(msh)
+  assert len(gmsh.model.get_attribute("Projection")) > 2
+  lonlat = osr.SpatialReference()
+  lonlat.ImportFromEPSG(4326)
+  lonlat.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+  seamsh.gmsh.reproject(msh, None, str(tmp_path / "lonlat.msh"), lonlat)
+  seamsh.gmsh.convert_to_gis(msh, None, str(tmp_path / "pretty.gpkg"))
+  from osgeo import ogr
+
+  assert ogr.Open(str(tmp_path / "pretty.gpkg")).GetLayer().GetSpatialRef().IsSame(utm())
+
+
+def test_reproject_without_any_projection_is_an_error(model, tmp_path):
+  """With no projection given and none stored in the file, reproject says so (it failed inside the reprojection)."""
+  seamsh.gmsh.mesh(square_with_island(), uniform(20e3))
+  gmsh.model.remove_attribute("Projection")
+  msh = str(tmp_path / "bare.msh")
+  gmsh.write(msh)
+  with pytest.raises(ValueError, match="No projection"):
+    seamsh.gmsh.reproject(msh, None, str(tmp_path / "out.msh"), utm())
+
+
+@pytest.mark.parametrize("version", [2.2, 4.1])
+def test_reproject_keeps_the_node_numbers(model, tmp_path, version):
+  """Written as MSH 2, the nodes of the reprojected mesh were renumbered from 1, which breaks data kept by node
+  number next to the mesh (upstream's ce6ec1a and 6442e2e); the gmsh option set for it is put back. gmsh 4.12 and
+  older ignore the option. (MSH 2 holds the nodes of the elements only, MSH 4 all the nodes of the model: the nodes of
+  the triangles are compared.)"""
+  if version == 2.2 and tuple(int(v) for v in gmsh.__version__.split(".")[:2]) < (4, 13):
+    pytest.skip("gmsh < 4.13 renumbers the nodes of MSH 2 files whatever the option")
+
+  def triangle_nodes():
+    return np.unique(gmsh.model.mesh.getElementsByType(2)[1])
+
+  seamsh.gmsh.mesh(square_with_island(), uniform(20e3))
+  tags = gmsh.model.mesh.getNodes()[0]
+  gmsh.model.mesh.renumberNodes(tags, tags + 1000)
+  expected = triangle_nodes()
+  assert expected.min() > 1000
+  gmsh.write(str(tmp_path / "in.msh"))
+  before = gmsh.option.getNumber("Mesh.PreserveNumberingMsh2")
+  seamsh.gmsh.reproject(str(tmp_path / "in.msh"), None, str(tmp_path / "out.msh"), utm(), output_version=version)
+  assert gmsh.option.getNumber("Mesh.PreserveNumberingMsh2") == before
+  gmsh.clear()
+  gmsh.open(str(tmp_path / "out.msh"))
+  np.testing.assert_array_equal(triangle_nodes(), expected)
+
+
+def test_features_without_a_tag_are_meshed_in_no_group(model, tmp_path):
+  """Features of a shapefile whose tag field is unset or empty are meshed, and are in no physical group. Their
+  physical name was None, and mesh() failed (upstream's 5b45b37); an empty name made a group without a name."""
+  from osgeo import ogr
+
+  path = str(tmp_path / "tags.gpkg")
+  source = ogr.GetDriverByName("GPKG").CreateDataSource(path)
+  layer = source.CreateLayer("coast", utm(), ogr.wkbLineString)
+  layer.CreateField(ogr.FieldDefn("phys", ogr.OFTString))
+  corners = [(0, 0), (100e3, 0), (100e3, 100e3), (0, 100e3), (0, 0)]
+  for value, (a, b) in zip(["coast", None, "", "coast"], zip(corners[:-1], corners[1:])):
+    feature = ogr.Feature(layer.GetLayerDefn())
+    if value is not None:
+      feature.SetField("phys", value)
+    line = ogr.Geometry(ogr.wkbLineString)
+    line.AddPoint_2D(*a)
+    line.AddPoint_2D(*b)
+    feature.SetGeometry(line)
+    layer.CreateFeature(feature)
+  source = None
+  domain = Domain(utm())
+  domain.add_boundary_curves_shp(path, "phys")
+  domain.add_interior_points(np.array([[50e3, 50e3]]), "", utm())
+  seamsh.gmsh.mesh(domain, uniform(20e3))
+  mesh = current_mesh()
+  assert mesh["groups"] == ["coast", "domain"]
+  np.testing.assert_allclose(signed_areas(mesh).sum(), 100e3**2, rtol=1e-6)
+  # The group "coast" is the two tagged sides: the bottom (y = 0) and the left (x = 0).
+  (coast,) = [t for d, t in gmsh.model.getPhysicalGroups(1) if gmsh.model.getPhysicalName(d, t) == "coast"]
+  x = gmsh.model.mesh.getNodesForPhysicalGroup(1, coast)[1].reshape(-1, 3)
+  assert np.all((np.abs(x[:, 0]) < 1) | (np.abs(x[:, 1]) < 1))
+  assert np.abs(x[:, :2] - [100e3, 0]).sum(axis=1).min() < 1 and np.abs(x[:, :2] - [0, 100e3]).sum(axis=1).min() < 1
+
+
 def test_size_callback_scaling_between_projections():
   """Curves are sampled in their own projection, where the size (given in the domain's) is divided
   by the local scale of the projection, estimated by finite differences. The estimate must hold
