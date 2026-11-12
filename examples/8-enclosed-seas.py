@@ -133,6 +133,8 @@ for ax, (name, (xyz, triangles)) in zip(axes, meshes.items()):
     ax.triplot(Triangulation(lon, lat, triangles, mask=mask), color="k", linewidth=0.3)
     ax.set_title(f"{name}: {len(triangles)} triangles")
     ax.set_aspect("equal")
+    ax.set_xticks(np.arange(-180, 181, 60))
+    ax.set_yticks(np.arange(-90, 91, 30))
     ax.set_ylabel("latitude (degrees)")
 axes[1].set_xlabel("longitude (degrees)")
 plt.show()
