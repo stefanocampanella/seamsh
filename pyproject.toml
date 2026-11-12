@@ -14,7 +14,7 @@ dependencies = ["numpy", "scipy", "gdal>=3.1.0", "gmsh", "tqdm"]
 classifiers = [
     "Environment :: Console",
     "Development Status :: 4 - Beta",
-    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
     "Operating System :: POSIX :: Linux",
     "Operating System :: Microsoft :: Windows",
     "Operating System :: MacOS :: MacOS X",
@@ -34,7 +34,7 @@ Documentation = "http://jlambrechts.git-page.immc.ucl.ac.be/seamsh"
 
 [tool.setuptools]
 packages = ["seamsh"]
-license-files = ["COPYING.txt", "AUTHORS.txt", "LICENSE.txt"]
+license-files = ["COPYING.txt", "COPYING.LESSER.txt", "AUTHORS.txt", "LICENSE.txt"]
 
 [tool.setuptools.package-data]
 seamsh = ["*.so"]
@@ -58,4 +58,4 @@ ignore = ["E501"]
 "examples/*" = ["E402", "SIM115"]
 
 [tool.codespell]
-skip = "seamshlib/polymesh.c,seamshlib/polymesh.h,seamshlib/robustPredicates.c,seamshlib/robustPredicates.h,seamshlib/qsort.h,seamshlib/vector.h,COPYING.txt,AUTHORS.txt,refactoring-kit,tests/data,build,*.msh"
+skip = "seamshlib/polymesh.c,seamshlib/polymesh.h,seamshlib/robustPredicates.c,seamshlib/robustPredicates.h,seamshlib/qsort.h,seamshlib/vector.h,COPYING.txt,COPYING.LESSER.txt,AUTHORS.txt,refactoring-kit,tests/data,build,*.msh"

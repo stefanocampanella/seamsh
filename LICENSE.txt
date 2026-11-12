@@ -22,6 +22,36 @@ GNU Lesser General Public License for more details.
 You should have received a copy of the GNU Lesser General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+The text of the GNU Lesser General Public License is in COPYING.LESSER.txt. It refers to the GNU
+General Public License, version 3, whose text is in COPYING.txt.
+
+Changes made in this fork (https://github.com/stefanocampanella/seamsh) are recorded in the git
+history and in CHANGELOG.rst; they are copyright of their authors and are licensed under the same
+terms as the files they are in.
+
+Files from other projects (seamshlib)
+-----------------------------------------
+
+- polymesh.c, polymesh.h, robustPredicates.h: from Gmsh, Copyright (C) 1997-2021 C. Geuzaine,
+  J.-F. Remacle, GNU General Public License, version 2 or later (with the exceptions of Gmsh's
+  LICENSE.txt, https://gitlab.onelab.info/gmsh/gmsh/-/blob/master/LICENSE.txt).
+- robustPredicates.c: placed in the public domain by Jonathan Richard Shewchuk.
+- qsort.h: Copyright (c) 2013, 2017 Alexey Tourbin, MIT license (text in the file).
+- vector.h: from MigFlow, Copyright (C) 2010-2020 Universite catholique de Louvain and Universite
+  de Montpellier, GNU Lesser General Public License, version 3 or later.
+
+seamsh as a whole
+-----------------------------------------
+
+The library compiled from seamshlib (seamsh/libseamsh.so) contains the files from Gmsh above, and
+the Python package cannot be used without it. seamsh as a whole (this source tree, and packages
+or images that contain the compiled library) is therefore distributed under the terms of the GNU
+General Public License, version 3 or (at your option) any later version (COPYING.txt). Both
+licenses allow it: the GNU Lesser General Public License of seamsh's own files is the GNU General
+Public License with additional permissions, and the license of the files from Gmsh is the GNU
+General Public License, version 2 or later. The files of seamsh itself can be used
+separately under the GNU Lesser General Public License, as their headers say.
+
 The list of the contributors to the development of seamsh is given in the AUTHORS file (all authors are or were affiliate to the Universite catholique de Louvain, UCL when they developed seamsh).
 
 Website of seamsh: https://git.immc.ucl.ac.be/jlambrechts/seamsh
