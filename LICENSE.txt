@@ -28,7 +28,8 @@ General Public License, version 3, whose text is in COPYING.txt.
 Changes made in this fork (https://github.com/stefanocampanella/seamsh)
 -----------------------------------------
 
-The changes are recorded in the git history and in CHANGELOG.rst.
+The fork branched from upstream's version 0.4.18. Its changes are by Stefano Campanella, and are
+recorded in the git history and in CHANGELOG.rst.
 
 - Changes to existing files are licensed under the same terms as the files they are in.
 - Files added by the fork are licensed under the GNU General Public License, version 3 or (at your
@@ -72,7 +73,17 @@ Public License with additional permissions, and the license of the files from Gm
 General Public License, version 2 or later. The files of seamsh itself can be used
 separately under the GNU Lesser General Public License, as their headers say.
 
-The list of the contributors to the development of seamsh is given in the AUTHORS file (all authors are or were affiliate to the Universite catholique de Louvain, UCL when they developed seamsh).
+Authors and websites
+-----------------------------------------
 
-Website of seamsh: https://git.immc.ucl.ac.be/jlambrechts/seamsh
-Contact: Jonathan Lambrechts <jonathan.lambrechts@uclouvain.be>
+The list of the contributors to the development of seamsh is given in the AUTHORS file. The
+authors of upstream's seamsh are or were affiliated to the Universite catholique de Louvain (UCL)
+when they developed it; the author of this fork's changes is listed there separately.
+
+Upstream (the original seamsh)
+  Website: https://git.immc.ucl.ac.be/jlambrechts/seamsh
+  Contact: Jonathan Lambrechts <jonathan.lambrechts@uclouvain.be>
+
+This fork
+  Website: https://github.com/stefanocampanella/seamsh
+  Issues: https://github.com/stefanocampanella/seamsh/issues

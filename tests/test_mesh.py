@@ -472,6 +472,22 @@ def test_convert_to_ugrid(model, tmp_path):
     np.testing.assert_allclose(ds["depth"].values, x / 1e3)
 
 
+def test_ugrid_global_attributes_name_this_software(model, tmp_path):
+    """The global attributes of the UGRID file say which software made it, and hold no placeholder
+    ("Institution Name", "REF" were written into every file)."""
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("netCDF4")
+    seamsh.gmsh.mesh(square_with_island(), uniform(20e3))
+    gmsh.write(str(tmp_path / "m.msh"))
+    seamsh.gmsh.convert_to_ugrid_mesh_file(
+        str(tmp_path / "m.msh"), {}, utm(), str(tmp_path / "m.nc")
+    )
+    attrs = xr.open_dataset(tmp_path / "m.nc").attrs
+    assert attrs["source"] == "seamsh (https://github.com/stefanocampanella/seamsh)"
+    assert "institution" not in attrs and "references" not in attrs
+    assert attrs["Conventions"] == "CF-1.6, UGRID-1.0"
+
+
 def test_convert_to_ugrid_with_the_stored_projection(model, tmp_path):
     """With projection=None the projection stored in the file by `mesh` is used, as in
     `convert_to_gis` (it was an AttributeError on None); the caller's model is left current."""

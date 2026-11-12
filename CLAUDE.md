@@ -5,8 +5,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 seamsh is a Python library wrapping gmsh, GDAL/OGR/OSR and scipy to generate unstructured (mainly coastal-ocean)
-meshes from GIS data. This repository is the fork `stefanocampanella/seamsh` (work goes into `develop`); upstream is
-Jonathan Lambrechts' GitLab project (`master`). The method is described in Lambrechts et al., "Multiscale mesh
+meshes from GIS data. This repository is the fork `stefanocampanella/seamsh` (work goes into `develop`, the default
+branch); upstream is Jonathan Lambrechts' GitLab project (https://git.immc.ucl.ac.be/jlambrechts/seamsh). The fork
+branched from upstream's 0.4.18 and does not follow it: upstream's later releases on PyPI (0.5 to 0.6.3, with a
+different coarsening and a gmsh development build) are other code. So the fork's versions carry the local label
+`+fork` (`setup.py`), and it is installed from GitHub, never from PyPI. Links in the docs and metadata point to the
+fork; upstream is credited as the original project (README, `AUTHORS.txt`, `LICENSE.txt`). The method is described in Lambrechts et al., "Multiscale mesh
 generation on the sphere", Ocean Dynamics 58 (2008): stereographic plane, B-spline coastlines, size fields. The
 boundary coarsening in `seamshlib/seamsh.c` is later than the article and is documented in the code.
 
@@ -43,8 +47,7 @@ gmsh model. `doc/conf.py` (`filename_pattern`) decides which are run: example 5 
 - `import seamsh` fails if `seamsh/libseamsh.so` has not been built; rebuild after every change to `seamshlib/`.
 - Metadata is in `pyproject.toml`, and `MANIFEST.in` decides what goes into the source package (setuptools does
   not find the C headers on its own: add new `seamshlib` files there). `setup.py` only defines the C library and the version (keep it in step with
-  `CHANGELOG.rst`; upstream's GitLab CI overrides it from tags `v-*` / `w-*`). `.gitlab-ci.yml` is upstream's CI
-  and does not run on GitHub.
+  `CHANGELOG.rst`; `doc/conf.py` reads it from `setup.py`). Upstream's GitLab CI and Docker images were removed.
 
 ## Tests
 
@@ -125,7 +128,7 @@ has not been asked which license it intends.
 
 `refactoring-kit/`, when present, is local material and must not be committed (large data, Apache-2.0 files from
 another project). `PR_GUIDE.md` and `NOTES_seamsh.md` give the context of the refactoring. It holds reference
-outputs: `validation/reference/` made with `f1ab87d`, and `validation/reference_0.5.0/` made with version 0.5.0,
+outputs: `validation/reference/` made with `f1ab87d`, and `validation/reference_0.5.0/` made with version 0.5.0+fork,
 whose meshes differ from the former (the boundary points are shifted along other normals). After a change that
 could affect outputs, from `refactoring-kit/`:
 

@@ -6,7 +6,7 @@ stereographic plane centred on the North Pole, as moby-dick uses seamsh.
 
 Reference numbers, measured with gmsh 4.12.1: coarsening at 100 km from a seed at the North Pole,
 then a 300 km mesh, gives 5,532 nodes in 10,323 triangles and 783 boundary edges (5,512, 10,284 and
-782 before version 0.5.0, which moves the coarsened boundary points along other normals).
+782 before version 0.5.0+fork, which moves the coarsened boundary points along other normals).
 """
 
 import gmsh

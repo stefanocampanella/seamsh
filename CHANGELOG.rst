@@ -1,7 +1,19 @@
 Changes
 =======
-seamsh 0.5.0
-------------
+
+The versions labelled ``+fork`` are those of the fork https://github.com/stefanocampanella/seamsh,
+which branched from upstream's 0.4.18 (https://git.immc.ucl.ac.be/jlambrechts/seamsh). Upstream's
+own releases since then (0.4.19 and later, on PyPI) are not listed here: they are different code,
+and upstream's 0.5 is not this 0.5.0+fork.
+
+seamsh 0.5.0+fork
+-----------------
+* the version carries the local label ``+fork``, the project's links (README, package metadata,
+  documentation) point to the fork, and the installation instructions install it from GitHub;
+  upstream's GitLab CI and Docker images, which released to upstream's PyPI project, are removed
+* convert_to_ugrid_mesh_file: the global attribute ``source`` of the file is
+  "seamsh (https://github.com/stefanocampanella/seamsh)", and the placeholders ``institution``
+  ("Institution Name") and ``references`` ("REF") are no longer written
 * disconnected domains: coarsen_boundaries takes several points (x0 can be a sequence of points) and keeps the basin around each one, e.g. a sea behind a strait narrower than the mesh size; mesh builds one surface per region of the domain (regions are found from the nesting of the boundary loops, so a lake on an island is meshed too) and embeds interior curves and points in the region that holds them
 * **meshes change**: the points of a coarsened boundary are moved towards the domain along the normals of the two segments that meet on them (the two segments before the point were used); coarsened domains have the same number of curves and points, moved by at most two twenty-fifths of the size, and their meshes have the same quality but other nodes
 * the smoothing of the mesh size stops on a tolerance relative to the sizes: meshes no longer depend on the unit of length (they are unchanged for sizes above 1000 units, e.g. in metres)
