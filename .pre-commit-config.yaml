@@ -1,21 +1,43 @@
 # SPDX-FileCopyrightText: 2026 Stefano Campanella
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# Third-party C sources (gmsh's polymesh, Shewchuk's predicates, qsort.h, vector.h) are left as they are.
+# Hooks run by `pre-commit run` (in an environment where the dev group is installed): `pre-commit install` runs them
+# on every commit. The first run downloads the hook environments (needs internet). Third-party C sources (gmsh's
+# polymesh, Shewchuk's predicates, qsort.h, vector.h) are left as they are.
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Keep in sync with the ruff pin of the dev group (pyproject.toml).
     rev: v0.17.3
     hooks:
       - id: ruff-check
         args: [--fix]
       - id: ruff-format
+
   - repo: https://github.com/codespell-project/codespell
     rev: v2.4.1
     hooks:
       - id: codespell
         additional_dependencies: [tomli]
+
   - repo: https://github.com/pre-commit/mirrors-clang-format
     rev: v21.1.5
     hooks:
       - id: clang-format
         files: ^seamshlib/seamsh\.c$
+
+  - repo: https://github.com/fsfe/reuse-tool
+    rev: v6.3.0
+    hooks:
+      # The whole repository: copyright and license of every file (SPDX headers or REUSE.toml).
+      - id: reuse
+
+  - repo: local
+    hooks:
+      # ty from the environment, which has the dependencies (gmsh, GDAL, numpy, scipy) to resolve imports.
+      - id: ty
+        name: ty check
+        language: system
+        types: [python]
+        pass_filenames: false
+        entry: >-
+          bash -c 'exec ty check --python "$(python -c "import sys; print(sys.prefix)")" seamsh tests setup.py'

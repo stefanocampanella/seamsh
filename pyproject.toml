@@ -42,7 +42,22 @@ classifiers = [
 [project.optional-dependencies]
 # gmsh.convert_to_ugrid_mesh_file
 ugrid = ["xarray", "netcdf4"]
-dev = ["pytest", "ruff", "pre-commit"]
+
+# Tools, not features: dependency groups (PEP 735, `pip install --group dev`, pip >= 25.1), as in moby-dick.
+[dependency-groups]
+dev = [
+    "coverage[toml] >= 7.17",
+    "pre-commit >= 4.7",
+    "pytest >= 9",
+    "pytest-cov >= 7.1",
+    # Pinned: the rules enabled by default and the formatter's output change between versions; keep in sync with
+    # .pre-commit-config.yaml (and with moby-dick).
+    "ruff == 0.17.3",
+    "ty == 0.0.97",
+    # Type stubs for ty. scipy-stubs tracks scipy's version: keep it compatible with the scipy in use.
+    "scipy-stubs",
+    "types-tqdm",
+]
 doc = [
     "sphinx",
     "sphinx_rtd_theme",
@@ -67,12 +82,39 @@ seamsh = ["*.so"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Import seamsh from the source tree (needs `python setup.py build_ext --inplace` first).
+# Import seamsh from the source tree (needs `python setup.py build_ext --inplace` first), not a copy installed in
+# the environment (moby-dick's image has one).
 pythonpath = [".", "tests"]
+addopts = ["--import-mode=importlib"]
+filterwarnings = [
+    # Deprecations raised in our own code fail the tests, so they are fixed before the libraries remove the APIs.
+    "error::DeprecationWarning:seamsh",
+    "error::FutureWarning:seamsh",
+]
 
+[tool.coverage.run]
+source = ["seamsh"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+# pytest --cov fails below this total (CI); coverage was 82 % on 12 Nov 2026.
+fail_under = 80
+
+[tool.ty.environment]
+python-version = "3.12"
+# The tests import their helpers (domains.py) as top-level modules.
+extra-paths = ["tests"]
+
+# The conventions of moby-dick: 2-space indentation, 120 columns, double quotes.
 [tool.ruff]
-line-length = 100
+indent-width = 2
+line-length = 120
 extend-exclude = ["refactoring-kit", "doc/conf.py"]
+
+[tool.ruff.format]
+indent-style = "space"
+quote-style = "double"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "C4", "SIM"]
