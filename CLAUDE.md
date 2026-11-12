@@ -26,6 +26,8 @@ python setup.py build_ext --inplace
 python -m pytest                                # all tests (imports seamsh from the source tree), ~10 s
 python -m pytest tests/test_mesh.py -k island   # one file / one test
 python -m pytest --cov                          # with branch coverage; fails under 80 % (86 % in Nov 2026)
+# Mesh quality of the 1:10m global ocean per level (minutes; Natural Earth's ne_10m_coastline, downloaded)
+python tests/benchmarks/quality_levels.py ne_10m_coastline.shp --levels 25 50 100 200 400 --fraction 1.0 --worst 3
 pre-commit run --all-files                      # ruff check/format, codespell, clang-format (seamsh.c), reuse, ty
 
 # Docs (needs the `doc` group; seamsh importable, e.g. PYTHONPATH=$PWD). sphinx-gallery runs examples/*.py (~1 min,
@@ -70,6 +72,14 @@ basins joined by a channel, two separate squares) and the mesh measurements; `co
 gives each test a fresh model (`model` fixture). `test_natural_earth.py` runs the whole chain on the Natural Earth
 1:110m coastline (`tests/data`). Mesh counts are asserted within ranges, because they depend on the gmsh version.
 Every test has a docstring saying what it checks and why; every bug fix comes with a test that failed before.
+
+**Mesh quality** is what matters most downstream (moby-dick builds hierarchies of global ocean meshes for GNNs). It
+is measured with `tests/quality.py` (`mesh_quality()` of the current gmsh model): gamma (twice the inscribed over the
+circumscribed radius; gmsh's "gamma", moby-dick's metric under the same name), angles, node degree, poor triangles at
+the boundary. The targets agreed with moby-dick are there (worst gamma >= 0.4, < 1 % below 0.8, no angle under 15
+degrees, >= 80 % of nodes of degree 6 at 25-100 km), and `test_natural_earth.py` asserts them per level on 1:110m.
+`tests/benchmarks/quality_levels.py` (not run by pytest: needs the 1:10m coastline, minutes) gives the table for 25 to
+400 km; run it before and after anything that touches the coarsening or the meshing, and report the numbers.
 
 gmsh's quadrangle algorithm (`Mesh.Algorithm` 8) ends the process with a segmentation fault in builds of gmsh
 without ANN, such as Ubuntu 24.04's gmsh 4.12.1 (the one in moby-dick's image), even on a plain square; the
@@ -125,7 +135,16 @@ Things that need several files to see:
   Curves with no node in a surface element (outlines of islands smaller than the mesh) are taken out of their
   physical group so they are not written: gmsh refuses to delete them. A *region* smaller than the mesh size is
   never dropped (`_keep_small_regions`): its outer boundary gets three segments (transfinite curves), i.e. one
-  triangle, so that meshes of the same domain at several resolutions cover the same basins.
+  triangle, so that meshes of the same domain at several resolutions cover the same basins. After meshing,
+  gmsh's `Relocate2D` moves the nodes of poor triangles (`optimize=True`, in the plane of the domain, before
+  `_reproject`). gmsh options that only some builds have (`Mesh.ValenceRepair2D`, `setNodes`) are probed
+  (`_gmsh_has_option`, `getattr`), never inferred from the version; seamsh must work with released gmsh (4.12-4.15).
+- **Coarse levels**: a mesh on a coastline coarsened for a finer size is poor along the coast; a coastline coarsened
+  at the level's size loses seeded seas a few sizes across (the C edge collapses thin them to nothing:
+  `_warn_about_lost_seeds` reports it). Per-level coarsening is the caller's choice (moby-dick's), not seamsh's.
+  Tried and dropped (Nov 2026): cutting sharp corners of the coarsened boundary (none sharper than 30 degrees within a
+  loop: the poor spots are land walls a few km wide, where chains of islands were joined, and their junctions); a
+  size cap at narrow parts of the domain (too slow as written).
 - **Outputs are meant to be reproducible.** Downstream meshes are compared with references to within rounding:
   anything that changes sampled points, the jitter, the collapses, the inward shift or the gmsh call order changes
   meshes (same quality, other nodes). Such a change must be deliberate, and reported with before/after numbers.

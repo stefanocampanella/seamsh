@@ -6,8 +6,29 @@ which branched from upstream's 0.4.18 (https://git.immc.ucl.ac.be/jlambrechts/se
 own releases since then (0.4.19 and later, on PyPI) are not listed here: they are different code,
 and upstream's 0.5 is not this 0.5.0+fork.
 
-seamsh 0.5.1+fork
+seamsh 0.6.0+fork
 -----------------
+* **mesh quality** (gamma: twice the radius of the inscribed circle over that of the circumscribed one, 1 for an
+  equilateral triangle; moby-dick's targets: worst gamma >= 0.4, under 1 % of triangles below 0.8, no angle under
+  15 degrees):
+
+  * **meshes change**: mesh() runs gmsh's optimiser Relocate2D after meshing (``optimize=True``, the default), in the
+    plane of the domain: fewer poor triangles at every level of the 1:10m global ocean (e.g. below 0.8: 0.13 ->
+    0.10 % at 50 km, 0.82 -> 0.61 % at 400 km); the worst triangle moves either way (400 km: 0.47 -> 0.54, 200 km:
+    0.63 -> 0.60). Same nodes and triangles, other positions. ``optimize=False`` gives the previous meshes
+  * ``mesh(valence_repair=True)`` uses gmsh's valence repair (option Mesh.ValenceRepair2D), which only gmsh's branch
+    valence-repair-2d has today; with another gmsh it is an error that says so
+  * coarsen_boundaries warns when a point of x0 is not in the coarsened domain: a seeded sea a few times the size
+    across can be thinned to nothing by the coarsening (1:10m: the Black Sea at 300 km), which happened silently
+  * found by measuring (tests/benchmarks/quality_levels.py), for the users: a coarse mesh on a coastline coarsened
+    for a finer one is poor along the coast (400 km on a 10 km coastline: worst gamma 0.017); coarsen the coastline
+    for each level, at a fraction of its size, and give seeds in the open ocean too (a coastline coarsened at
+    500 km closes the Arctic's passages)
+
+* faster: the edges of the background size grid are made unique by sorting instead of numpy 2's np.unique (25 times
+  slower on integers; 7.5 of the 80 s of a 25 km global mesh), with the same mesh; reproject and mesh(output_srs=...)
+  move all the nodes in one call when gmsh has mesh.setNodes (gmsh 5 development builds; 5 s for a 25 km global
+  mesh with one call per node); the docstring of mesh says how to write binary files (several times faster)
 * fixes from upstream's releases since 0.4.18 that still applied here:
 
   * **meshes change where tags overlap**: in coarsen_boundaries, a curve shorter than the size between two longer
