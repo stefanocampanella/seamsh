@@ -7,6 +7,8 @@ seamsh 0.5.0
 * the smoothing of the mesh size stops on a tolerance relative to the sizes: meshes no longer depend on the unit of length (they are unchanged for sizes above 1000 units, e.g. in metres)
 * mesh leaves the gmsh options as they were, except the file version
 * mesh(quad=True) raises an error with builds of gmsh in which the quadrangle algorithm crashes (those without ANN, e.g. Ubuntu 24.04's gmsh 4.12.1)
+* mesh never loses a region of the domain: one smaller than the mesh size (e.g. a small sea given its own point in coarsen_boundaries, in a coarse mesh) has its boundary meshed with three segments and is one triangle; it used to be missing from the mesh
+* a shapefile or geopackage that cannot be opened is reported by name
 * more than two boundary curves meeting at a point, and triangulations with more than two triangles on an edge, are errors
 * a warning is logged when the coarsening stops before the boundary is at the requested size
 * field.Inpoly no longer needs shapely
@@ -19,6 +21,8 @@ seamsh 0.5.0
 * a mesh size that is zero, negative or NaN raises an error instead of looping forever
 * the mesh size is scaled correctly along curves given in a projected coordinate system (in metres)
 * convert_to_gis and convert_to_ugrid_mesh_file work again
+* license statements made consistent (LICENSE.txt): seamsh's own files are LGPL v3 or later as before, the files from gmsh in seamshlib are GPL, so seamsh as a whole is distributed under the GPL v3 or later; the text of the LGPL is included
+* new example: enclosed seas and a hierarchy of meshes (several points, two resolutions)
 * tests (pytest), pyproject.toml, examples and documentation updated to the current API (mesh works on the current gmsh model, Raster takes a gdal dataset)
 
 seamsh 0.4.18

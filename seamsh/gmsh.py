@@ -170,11 +170,13 @@ def _curve_sample(curve, lc, projection: osr.SpatialReference) -> np.ndarray:
     return _tools.project_points(samples, curve.projection, projection)
 
 
-def _create_gmsh_geometry(domain: _geometry.Domain) -> None:
+def _create_gmsh_geometry(domain: _geometry.Domain) -> list:
     """Builds the geometry of `domain` (after `_build_topology`) in the current gmsh model: its
     points, curves, one plane surface per region of the domain (bounded by the curve loops of the
     region), the interior curves and points embedded in the surface that holds them, and the
-    physical groups: one per curve or point tag, and "domain" for the surfaces."""
+    physical groups: one per curve or point tag, and "domain" for the surfaces.
+
+    Returns the tags of the gmsh curves of each loop of `domain._curveloops`."""
     logger.info("Build gmsh model")
     gmsh.option.setNumber("Mesh.CharacteristicLengthFromPoints", 0)
     gmsh.option.setNumber("Mesh.LcIntegrationPrecision", 1e-5)
@@ -186,6 +188,7 @@ def _create_gmsh_geometry(domain: _geometry.Domain) -> None:
     for i, x in enumerate(domain._points):
         gmsh.model.geo.addPoint(*x, 0, tag=i + 1)
     loop_tags = []
+    curves_of_loops = []
     for loop in domain._curveloops:
         loop_curves = []
         for curve_index, forward in loop:
@@ -195,6 +198,7 @@ def _create_gmsh_geometry(domain: _geometry.Domain) -> None:
             # gmsh takes a curve backwards when its tag is negative.
             loop_curves.extend(tags if forward else [-t for t in reversed(tags)])
         loop_tags.append(gmsh.model.geo.addCurveLoop(loop_curves))
+        curves_of_loops.append([abs(t) for t in loop_curves])
     # One surface per region; in each, the first loop is the outer boundary, the others are holes.
     surfaces = [
         gmsh.model.geo.addPlaneSurface([loop_tags[i] for i in region]) for region in domain._regions
@@ -233,6 +237,67 @@ def _create_gmsh_geometry(domain: _geometry.Domain) -> None:
         gmsh.model.setPhysicalName(0, tag, name)
     tag = gmsh.model.addPhysicalGroup(2, surfaces)
     gmsh.model.setPhysicalName(2, tag, "domain")
+    return curves_of_loops
+
+
+# A closed boundary needs three segments to bound a triangle.
+_MIN_SEGMENTS = 3
+
+
+def _curve_length(tag: int) -> float:
+    """Approximate length of a gmsh curve (a polyline through 50 points of it)."""
+    bounds = gmsh.model.getParametrizationBounds(1, tag)
+    xi = np.linspace(bounds[0][0], bounds[1][0], 50)
+    x = gmsh.model.getValue(1, tag, xi).reshape(-1, 3)
+    return float(np.sum(np.linalg.norm(np.diff(x, axis=0), axis=1)))
+
+
+def _keep_small_regions(
+    domain: _geometry.Domain, mesh_size: _geometry.MeshSizeCallback, curves_of_loops: list
+) -> None:
+    """Makes sure that every region of the domain gets at least one triangle.
+
+    gmsh meshes a closed boundary much shorter than the mesh size with one or two segments, which
+    bound no triangle: the region would silently be missing from the mesh. That is right for a hole
+    (an island smaller than the mesh size is ignored), not for a region, which is a part of the
+    domain that was asked for, e.g. a small sea given its own point in `coarsen_boundaries`. Where
+    the mesh size gives fewer than three and a half segments around the outer boundary of a region
+    (its length divided by the size, summed along it), the number of segments of its curves is set
+    (transfinite curves) so that there are three in all. Such a region is one triangle: to resolve
+    it better, lower the mesh size there.
+    """
+    n_small = 0
+    for region in domain._regions:
+        outer = region[0]
+        polygon = domain._loop_polygons[outer]
+        closed = np.r_[polygon, polygon[:1]]
+        lengths = np.hypot(*np.diff(closed, axis=0).T)
+        middles = (closed[:-1] + closed[1:]) / 2
+        sizes = _check_sizes(np.asarray(mesh_size(middles, domain._projection)))
+        n_segments = float(np.sum(lengths / sizes))
+        if n_segments >= _MIN_SEGMENTS + 0.5:
+            continue
+        n_small += 1
+        curves = curves_of_loops[outer]
+        # Every curve has at least one segment: share the missing ones, the longest curves first.
+        segments = dict.fromkeys(curves, 1)
+        by_length = sorted(curves, key=_curve_length, reverse=True)
+        i = 0
+        while sum(segments.values()) < _MIN_SEGMENTS:
+            segments[by_length[i % len(by_length)]] += 1
+            i += 1
+        for curve, n in segments.items():
+            gmsh.model.mesh.setTransfiniteCurve(curve, n + 1)
+        x = polygon.mean(axis=0)
+        logger.info(
+            "The region around (%g, %g) is smaller than the mesh size: its boundary is meshed with "
+            "%d segments",
+            x[0],
+            x[1],
+            sum(segments.values()),
+        )
+    if n_small:
+        logger.info("%d regions smaller than the mesh size kept as one triangle each", n_small)
 
 
 def _mesh_bgrid(
@@ -496,7 +561,8 @@ def mesh(
     The mesh is left in the current gmsh model, in the coordinate system `output_srs` (stored as
     WKT in the model attribute "Projection"); write it with `gmsh.write`. A domain made of several
     regions that do not touch (e.g. from `coarsen_boundaries` with several points) gives a mesh in
-    as many pieces. Boundary and interior
+    as many pieces; a region smaller than the mesh size is kept as one triangle (lower the mesh
+    size there to resolve it). Boundary and interior
     curves, and forced points, are in physical groups named by their physical tags, the surface in
     the physical group "domain". Curves that end up in no element of the surface (the outlines of
     islands much smaller than the mesh size) are left out of their physical group, hence of the
@@ -534,7 +600,9 @@ def mesh(
         )
     domain._build_topology()
     with _restored_options(_MESH_OPTIONS):
-        _create_gmsh_geometry(domain)
+        curves_of_loops = _create_gmsh_geometry(domain)
+        # Before the caller's transfinite curves, which prevail.
+        _keep_small_regions(domain, mesh_size, curves_of_loops)
         for dim, tag in gmsh.model.get_physical_groups(1):
             pname = gmsh.model.getPhysicalName(dim, tag)
             if pname in transfinite_curves:

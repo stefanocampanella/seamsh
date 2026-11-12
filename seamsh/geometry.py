@@ -357,7 +357,13 @@ class Domain:
             driver = ogr.GetDriverByName("GPKG")
         else:
             driver = ogr.GetDriverByName("ESRI Shapefile")
-        data = driver.Open(filename, 0)
+        # Open returns None, or raises if the caller enabled OGR exceptions.
+        try:
+            data = driver.Open(filename, 0)
+        except RuntimeError:
+            data = None
+        if data is None:
+            raise FileNotFoundError(f"cannot open '{filename}' as a shapefile or geopackage")
         layer = data.GetLayer()
         layerdef = layer.GetLayerDefn()
         physfield = None

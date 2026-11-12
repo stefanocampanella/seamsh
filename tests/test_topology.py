@@ -86,6 +86,15 @@ def test_interior_points_get_a_point_id():
     np.testing.assert_allclose(domain._points[ids], [[10e3, 10e3], [20e3, 10e3]])
 
 
+def test_missing_shapefile_is_reported(tmp_path):
+    """A file that OGR cannot open is named in the error (it used to be an AttributeError on None,
+    as in example 5, whose data archive lacks one file)."""
+    domain = Domain(utm())
+    for name in ("missing.shp", "missing.gpkg"):
+        with pytest.raises(FileNotFoundError, match=name):
+            domain.add_boundary_curves_shp(str(tmp_path / name), None)
+
+
 def test_open_boundary_is_an_invalid_topology():
     """Boundary curves that do not close cannot bound a surface."""
     srs = utm()

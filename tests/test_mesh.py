@@ -7,6 +7,7 @@ import pytest
 from domains import (
     current_mesh,
     n_components,
+    rectangle,
     signed_areas,
     square_with_island,
     stray_line_nodes,
@@ -17,6 +18,7 @@ from domains import (
 from osgeo import osr
 
 import seamsh.gmsh
+from seamsh.geometry import Domain
 
 
 def check_square_with_island(mesh, size):
@@ -120,6 +122,38 @@ def test_two_separate_squares(model):
     centroids = mesh["x"][mesh["triangles"], :2].mean(axis=1)
     assert not ((centroids[:, 0] > 40e3) & (centroids[:, 0] < 60e3)).any()
     np.testing.assert_allclose(signed_areas(mesh).sum(), 2 * 40e3**2, rtol=0.02)
+
+
+@pytest.mark.parametrize("smoothness", [0.3, 0.0])
+def test_region_smaller_than_the_mesh_size_is_meshed(model, caplog, smoothness):
+    """A region of the domain is never lost: one whose boundary gmsh would mesh with fewer than
+    three segments (here a 6 km square with a 30 km mesh size) gets three, hence one triangle, and
+    a message says so. Unlike an island smaller than the mesh size, which is only a hole, such a
+    region is a part of the domain that was asked for (e.g. a small sea with its own point in
+    `coarsen_boundaries`); it used to disappear from the mesh without a word."""
+    srs = utm()
+    domain = Domain(srs)
+    domain.add_boundary_curve(rectangle(0, 0, 120e3, 120e3, 5e3), "large", srs)
+    domain.add_boundary_curve(rectangle(150e3, 0, 156e3, 6e3, 1e3), "small", srs)
+    with caplog.at_level("INFO", logger="seamsh"):
+        seamsh.gmsh.mesh(domain, uniform(30e3), smoothness=smoothness)
+    mesh = current_mesh()
+    assert n_components(mesh) == 2
+    centroids = mesh["x"][mesh["triangles"], :2].mean(axis=1)
+    in_small = centroids[:, 0] > 140e3
+    assert in_small.sum() == 1
+    assert (signed_areas(mesh) > 0).all()
+    assert mesh["groups"] == ["domain", "large", "small"]
+    assert stray_line_nodes(mesh) == 0
+    assert any("smaller than the mesh size" in r.getMessage() for r in caplog.records)
+
+
+def test_regions_larger_than_the_mesh_size_are_not_constrained(model, caplog):
+    """The minimum of three segments applies to small regions only: nothing is said, and no curve
+    is made transfinite, for regions the mesh size resolves."""
+    with caplog.at_level("INFO", logger="seamsh"):
+        seamsh.gmsh.mesh(two_squares(), uniform(5e3))
+    assert not any("smaller than the mesh size" in r.getMessage() for r in caplog.records)
 
 
 def written_mesh(path) -> dict:

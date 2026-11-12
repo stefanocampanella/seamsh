@@ -10,3 +10,4 @@ doc/_build/
 doc/examples/
 # Local material for the refactoring (large data, files from other projects).
 refactoring-kit/
+.coverage

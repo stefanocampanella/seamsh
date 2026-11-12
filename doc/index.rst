@@ -1,7 +1,7 @@
 Seamsh
 ======
 
-.. include:: ../Readme.rst
+.. include:: ../README.rst
 
 .. toctree::
    :maxdepth: 2

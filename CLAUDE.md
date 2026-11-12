@@ -90,17 +90,20 @@ Things that need several files to see:
   triangulation (`PolyMesh`), refined and smoothed; with `smoothness <= 0`, `_mesh_successive` does 1D meshing then
   three adaptation passes. Physical groups are named after curve tags; the surfaces are in the group `domain`.
   Curves with no node in a surface element (outlines of islands smaller than the mesh) are taken out of their
-  physical group so they are not written: gmsh refuses to delete them.
+  physical group so they are not written: gmsh refuses to delete them. A *region* smaller than the mesh size is
+  never dropped (`_keep_small_regions`): its outer boundary gets three segments (transfinite curves), i.e. one
+  triangle, so that meshes of the same domain at several resolutions cover the same basins.
 - **Outputs are meant to be reproducible.** Downstream meshes are compared with references to within rounding:
   anything that changes sampled points, the jitter, the collapses, the inward shift or the gmsh call order changes
   meshes (same quality, other nodes). Such a change must be deliberate, and reported with before/after numbers.
 
 ## License
 
-Stated inconsistently: `LICENSE.txt` and the file headers say LGPL v3 or later (copyright UCLouvain), the README
-and the classifier in `pyproject.toml` say GPL v3, `COPYING.txt` is the GPL v3 text and there is no copy of the
-LGPL. `seamshlib/polymesh.c` comes from gmsh (GPL v2 or later), which makes the compiled library GPL in any case.
-Keep the existing header on source files; do not relicense.
+`LICENSE.txt` is the reference. seamsh's own files are LGPL v3 or later (copyright UCLouvain; headers kept as they
+are, text in `COPYING.LESSER.txt`); `seamshlib/polymesh.c`, `polymesh.h` and `robustPredicates.h` come from gmsh
+(GPL v2 or later), so the compiled library, and seamsh as a whole, is distributed under the GPL v3 or later
+(`COPYING.txt`, README, classifier). Keep the existing header on source files; do not relicense. Upstream has not
+been asked which license it intends.
 
 ## Refactoring kit (untracked)
 
