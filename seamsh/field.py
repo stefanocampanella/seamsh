@@ -30,7 +30,8 @@ import numpy as np
 from osgeo import gdal, osr
 from scipy.spatial import cKDTree
 
-from . import _tools
+from ._progress import progress
+from ._projection import project_points
 from .geometry import Domain as _Domain
 from .geometry import _points_in_polygon
 from .gmsh import _curve_sample
@@ -72,7 +73,7 @@ class Distance:
       return np.full([x.shape[0]], sampling)
 
     icurve = 0
-    for curve in _tools.progress(all_curves_iter, desc="(seamsh) Sampling features for distance computation"):
+    for curve in progress(all_curves_iter, desc="(seamsh) Sampling features for distance computation"):
       if (tags is None) or (curve.tag in tags):
         points.append(_curve_sample(curve, size, self._projection))
         icurve += 1
@@ -95,7 +96,7 @@ class Distance:
         The distance, in the unit of the coordinate system of the field
         (that of the domain by default). [n]
     """
-    x = _tools.project_points(x, projection, self._projection)
+    x = project_points(x, projection, self._projection)
     return self._tree.query(x)[0]
 
 
@@ -131,7 +132,7 @@ class Raster:
     Returns:
         The field value on points x. [n]
     """
-    x = _tools.project_points(x, projection, self._projection)
+    x = project_points(x, projection, self._projection)
     gm = self._geo_matrix
     lon, lat = x[:, 0], x[:, 1]
     det = gm[5] * gm[1] - gm[2] * gm[4]
@@ -177,7 +178,7 @@ class Inpoly:
     Returns:
         True if the point belongs to a polygon / False otherwise. [n]
     """
-    x = _tools.project_points(x, projection, self._projection)
+    x = project_points(x, projection, self._projection)
 
     inpoly = np.full(x.shape[0], False)
     for polygon in self._area:

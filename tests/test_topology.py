@@ -160,28 +160,29 @@ def test_transformations_are_cached_by_definition():
   the cache does not grow without bound."""
   from osgeo import osr
 
-  from seamsh import _tools
+  from seamsh import _projection
 
-  _tools._transform_cache.clear()
+  _projection._by_definition.clear()
+  _projection._by_identity.clear()
   lonlat = [osr.SpatialReference() for _ in range(2)]
   for projection in lonlat:
     projection.ImportFromEPSG(4326)
     projection.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
   x = np.array([[3.0, 45.0]])
-  a = _tools.project_points(x, lonlat[0], utm())
-  b = _tools.project_points(x, lonlat[1], utm())
+  a = _projection.project_points(x, lonlat[0], utm())
+  b = _projection.project_points(x, lonlat[1], utm())
   np.testing.assert_array_equal(a, b)
   np.testing.assert_allclose(a, [[500000.0, 4982950.4]], atol=0.1)
-  assert len(_tools._transform_cache) == 1
+  assert len(_projection._by_definition) == 1
   # The same projection with the other axis order is another transformation.
   lonlat[1].SetAxisMappingStrategy(osr.OAMS_AUTHORITY_COMPLIANT)
-  np.testing.assert_allclose(_tools.project_points(x[:, ::-1], lonlat[1], utm()), a)
-  assert len(_tools._transform_cache) == 2
+  np.testing.assert_allclose(_projection.project_points(x[:, ::-1], lonlat[1], utm()), a)
+  assert len(_projection._by_definition) == 2
   for zone in range(1, 61):
     target = osr.SpatialReference()
     target.ImportFromEPSG(32600 + zone)
-    _tools.project_points(x, lonlat[0], target)
-  assert len(_tools._transform_cache) <= _tools._TRANSFORM_CACHE_SIZE
+    _projection.project_points(x, lonlat[0], target)
+  assert len(_projection._by_definition) <= _projection._CACHE_SIZE
 
 
 def test_transformations_of_the_same_objects_skip_the_definitions(monkeypatch):
@@ -190,22 +191,22 @@ def test_transformations_of_the_same_objects_skip_the_definitions(monkeypatch):
   axis order is checked."""
   from osgeo import osr
 
-  from seamsh import _tools
+  from seamsh import _projection
 
   lonlat = osr.SpatialReference()
   lonlat.ImportFromEPSG(4326)
   lonlat.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
   target = utm()
   x = np.array([[3.0, 45.0]])
-  first = _tools.project_points(x, lonlat, target)
+  first = _projection.project_points(x, lonlat, target)
   calls = []
-  real = _tools._projection_key
-  monkeypatch.setattr(_tools, "_projection_key", lambda p: calls.append(p) or real(p))
+  real = _projection._definition
+  monkeypatch.setattr(_projection, "_definition", lambda p: calls.append(p) or real(p))
   for _ in range(10):
-    np.testing.assert_array_equal(_tools.project_points(x, lonlat, target), first)
+    np.testing.assert_array_equal(_projection.project_points(x, lonlat, target), first)
   assert calls == []
   lonlat.SetAxisMappingStrategy(osr.OAMS_AUTHORITY_COMPLIANT)
-  np.testing.assert_allclose(_tools.project_points(x[:, ::-1], lonlat, target), first)
+  np.testing.assert_allclose(_projection.project_points(x[:, ::-1], lonlat, target), first)
   assert len(calls) == 2
 
 

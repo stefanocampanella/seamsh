@@ -24,6 +24,6 @@
 """
 
 from . import field, geometry, gmsh
-from ._tools import show_progress
+from ._progress import show_progress
 
 __all__ = ["field", "geometry", "gmsh", "show_progress"]

@@ -35,7 +35,7 @@ except ImportError:  # setuptools < 70
 # (upstream's 0.5 is not this 0.5.0).
 version = "0.5.0+fork"
 
-# Not a Python extension module: a plain shared library, loaded with ctypes in seamsh/_tools.py.
+# Not a Python extension module: a plain shared library, loaded with ctypes in seamsh/_libseamsh.py.
 lib = Extension(
   "seamsh.libseamsh",
   sources=["seamshlib/seamsh.c", "seamshlib/polymesh.c", "seamshlib/robustPredicates.c"],
@@ -51,7 +51,7 @@ class bdist_wheel(_bdist_wheel):
 
 
 class build_ext(_build_ext):
-  """Names the library `libseamsh.so` on every platform: the name seamsh/_tools.py loads."""
+  """Names the library `libseamsh.so` on every platform: the name seamsh/_libseamsh.py loads."""
 
   def get_ext_filename(self, fullname):
     return os.path.join(*fullname.split(".")) + ".so"

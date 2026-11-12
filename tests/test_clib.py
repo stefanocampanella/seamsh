@@ -6,7 +6,7 @@
 import numpy as np
 import pytest
 
-from seamsh import _tools
+from seamsh import _libseamsh
 
 
 def gen_boundaries(x, triangles, seeds, sizes, tags=None):
@@ -16,12 +16,13 @@ def gen_boundaries(x, triangles, seeds, sizes, tags=None):
     tags = np.ones(len(x), int)
   # One linked list of tags per point: (tag, index of the next entry or -1).
   tag_lists = np.c_[tags, np.full(len(x), -1)].astype(np.int32).reshape(-1)
-  points, lines = _tools.gen_boundaries(x, tag_lists, triangles, seeds, sizes)
+  result = _libseamsh.coarsen_boundary_points(x, tag_lists, triangles, seeds, sizes)
+  lines = result.curves
   curves, start = [], 0
   for end in np.where(lines == -1)[0]:
     curves.append((int(lines[start]), lines[start + 1 : end].tolist()))
     start = end + 1
-  return points, curves
+  return result.points, curves
 
 
 # A 10 x 10 square with a 2 x 2 square hole, as a ring of triangles one triangle wide (0-7), and
@@ -78,7 +79,7 @@ def test_tags_split_the_boundary():
 def test_polymesh_triangulates_points():
   """`PolyMesh` (gmsh's Delaunay kernel, used for the background size mesh) triangulates the
   points added to it: a square and its centre give four triangles."""
-  mesh = _tools.PolyMesh(np.array([0.0, 0.0]), np.array([1.0, 1.0]))
+  mesh = _libseamsh.PolyMesh(np.array([0.0, 0.0]), np.array([1.0, 1.0]))
   mesh.add_points(np.array([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0], [0.5, 0.5]]))
   triangles = mesh.get_triangles()
   assert triangles.shape == (4, 3)
@@ -153,10 +154,39 @@ def test_polymesh_is_freed(monkeypatch):
   """The background triangulation is allocated by the C library and given back when the
   PolyMesh object goes (it leaked: 2.6 GB after 200 triangulations of 20,000 points)."""
   freed = []
-  real = _tools.lib.polymesh_delete
-  monkeypatch.setattr(_tools.lib, "polymesh_delete", lambda p: freed.append(p.value) or real(p))
-  pm = _tools.PolyMesh(np.array([0.0, 0.0]), np.array([1.0, 1.0]))
+  real = _libseamsh._lib.polymesh_delete
+  monkeypatch.setattr(_libseamsh._lib, "polymesh_delete", lambda address: freed.append(address) or real(address))
+  pm = _libseamsh.PolyMesh(np.array([0.0, 0.0]), np.array([1.0, 1.0]))
   pm.add_points(np.random.default_rng(0).random((100, 2)))
-  address = pm._ptr.value
+  address = pm._address
   del pm
   assert freed == [address]
+  # Or at once, with close(); only once.
+  pm = _libseamsh.PolyMesh(np.array([0.0, 0.0]), np.array([1.0, 1.0]))
+  pm.close()
+  del pm
+  assert len(freed) == 2
+
+
+def test_coarsening_reports_whether_it_converged():
+  """The library says whether the coarsening reached the size everywhere: `geometry` warns when it did not."""
+  result = _libseamsh.coarsen_boundary_points(
+    RING_POINTS, np.c_[np.ones(8), np.full(8, -1)].astype(np.int32).reshape(-1), RING_TRIANGLES, 0, np.full(8, 2.5)
+  )
+  assert result.converged is True
+
+
+def test_missing_library_is_explained(tmp_path):
+  """Without the compiled library, the import error says how to build it (it was ctypes' bare OSError)."""
+  import shutil
+  import subprocess
+  import sys
+  from pathlib import Path
+
+  package = Path(_libseamsh.__file__).parent
+  copy = tmp_path / "seamsh"
+  shutil.copytree(package, copy, ignore=shutil.ignore_patterns("*.so", "__pycache__"))
+  # With -c, the current directory comes first on the path: the copy is imported.
+  run = subprocess.run([sys.executable, "-c", "import seamsh"], cwd=tmp_path, capture_output=True, text=True)
+  assert run.returncode != 0
+  assert "build_ext --inplace" in run.stderr

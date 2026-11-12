@@ -29,7 +29,9 @@ import numpy as np
 from osgeo import ogr, osr
 from scipy.spatial import Delaunay, cKDTree
 
-from . import _tools
+from ._libseamsh import coarsen_boundary_points
+from ._progress import progress
+from ._projection import project_points
 
 __all__ = ["Domain", "CurveType", "coarsen_boundaries"]
 
@@ -311,7 +313,7 @@ class Domain:
     interior_curves_as_given = list(self._interior_curves)
     all_curves = list(chain(self._curves, self._interior_curves))
     all_points = np.vstack(
-      [_tools.project_points(c.points, c.projection, self._projection) for c in all_curves]
+      [project_points(c.points, c.projection, self._projection) for c in all_curves]
       + [point.x for point in self._interior_points]
     )
     self._points, unique_id, is_break = _generate_unique_points(all_points)
@@ -400,10 +402,7 @@ class Domain:
         self.add_boundary_curve(geometry.GetPoints(), tag, projection, curve_type)
 
   def _add_shapefile(self, filename, physical_name_field, interior, points, curve_type):
-    if filename[-5:] == ".gpkg":
-      driver = ogr.GetDriverByName("GPKG")
-    else:
-      driver = ogr.GetDriverByName("ESRI Shapefile")
+    driver = ogr.GetDriverByName("GPKG") if filename[-5:] == ".gpkg" else ogr.GetDriverByName("ESRI Shapefile")
     # Open returns None, or raises if the caller enabled OGR exceptions.
     try:
       data = driver.Open(filename, 0)
@@ -423,7 +422,7 @@ class Domain:
       if physfield is None:
         raise ValueError("field '" + physical_name_field + "' not found in shapefile")
     layerproj = layer.GetSpatialRef()
-    for i in _tools.progress(layer, desc=f"(seamsh) Import features from '{filename}'"):
+    for i in progress(layer, desc=f"(seamsh) Import features from '{filename}'"):
       if i.geometry() is None:
         continue
       phys = i.GetField(physfield) if physfield is not None else "boundary"
@@ -439,7 +438,7 @@ class Domain:
         physical_tag: the points physical tag
         projection: the points coordinate system
     """
-    x = _tools.project_points(points, projection, self._projection)
+    x = project_points(points, projection, self._projection)
     self._interior_points += [_Point(p, physical_tag) for p in x]
 
   def add_boundary_curve(
@@ -598,7 +597,7 @@ def coarsen_boundaries(
   """
   logger.info("Coarsen boundaries")
   x0 = np.atleast_2d(np.asarray(x0, dtype=float))
-  seed_points = _tools.project_points(x0, x0_projection, domain._projection)
+  seed_points = project_points(x0, x0_projection, domain._projection)
   sampled = []
   sample_tags = []
   tag_number = {}  # physical tag (str) -> integer tag, from 1, for the C library
@@ -608,7 +607,7 @@ def coarsen_boundaries(
   def half_mesh_size(x, projection):
     return mesh_size(x, projection) * 0.5
 
-  for curve in _tools.progress(domain._curves, desc="(seamsh) Sampling curves for coarsening"):
+  for curve in progress(domain._curves, desc="(seamsh) Sampling curves for coarsening"):
     samples = _curve_sample(curve, half_mesh_size, domain._projection)
     sampled.append(samples)
     number = tag_number.setdefault(curve.tag, len(tag_number) + 1)
@@ -633,7 +632,10 @@ def coarsen_boundaries(
         f"Point {tuple(point.tolist())} of x0 is outside the domain (outside the convex hull of the boundary points)"
       )
   sizes = mesh_size(x, domain._projection)
-  points, lines = _tools.gen_boundaries(x, tag_lists, triangulation.simplices, seeds, sizes)
+  result = coarsen_boundary_points(x, tag_lists, triangulation.simplices, seeds, sizes)
+  if not result.converged:
+    logger.warning("Boundary coarsening stopped before the end: the boundary may be finer than the mesh size in places")
+  points, lines = result.points, result.curves
 
   coarse = Domain(domain._projection)
   tag_name = {number: name for name, number in tag_number.items()}

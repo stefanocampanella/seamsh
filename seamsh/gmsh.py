@@ -34,8 +34,10 @@ import gmsh
 import numpy as np
 from osgeo import ogr, osr
 
-from . import _tools
 from . import geometry as _geometry
+from ._libseamsh import PolyMesh
+from ._progress import progress
+from ._projection import project_points
 
 try:
   import xarray as xr
@@ -147,7 +149,7 @@ class _lcproj:
         x: points in the curve's projection.
         projection: the projection of the domain, in which `lc` is called.
     """
-    xlc = _tools.project_points(x, self.projection, projection)
+    xlc = project_points(x, self.projection, projection)
     slc = self.lc(xlc, projection)
     if self.projection.IsSame(projection):
       return slc
@@ -158,7 +160,7 @@ class _lcproj:
     eps = max(1e-8, 1e-11 * float(np.abs(x).max()))
     x2 = np.copy(x)
     x2[:, : projection.GetAxesCount()] += eps
-    xlc2 = _tools.project_points(x2, self.projection, projection)
+    xlc2 = project_points(x2, self.projection, projection)
     enorm = np.hypot(eps, eps)
     h = np.linalg.norm(xlc2 - xlc, axis=1) / enorm
     return slc / h
@@ -182,7 +184,7 @@ def _curve_sample(curve, lc, projection: osr.SpatialReference) -> np.ndarray:
   finally:
     gmsh.model.remove()
     gmsh.model.setCurrent(current_model)
-  return _tools.project_points(samples, curve.projection, projection)
+  return project_points(samples, curve.projection, projection)
 
 
 def _create_gmsh_geometry(domain: _geometry.Domain) -> list:
@@ -336,7 +338,7 @@ def _mesh_bgrid(domain: _geometry.Domain, mesh_size: _geometry.MeshSizeCallback,
   xx, yy = np.meshgrid(x, y)
   xy = np.stack((xx.T, yy.T), axis=2).reshape(-1, 2)
   v = _check_grid_sizes(mesh_size(xy, domain._projection), xy)
-  poly = _tools.PolyMesh(x0, x1)
+  poly = PolyMesh(x0, x1)
   poly.add_points(xy)
   while True:
     xyz = np.c_[xy.reshape(-1, 2), np.zeros((xy.size // 2, 1))]
@@ -407,7 +409,7 @@ def _mesh_successive(
 
   # 1D mesh
   curves = gmsh.model.getEntities(1)
-  for dim, tag in _tools.progress(curves, desc="(seamsh) Sample curves for mesh size"):
+  for dim, tag in progress(curves, desc="(seamsh) Sample curves for mesh size"):
     _, xi, size = _curve_sample_gmsh_tag(tag, lambda x, p: mesh_size(x, p) / 2, domain._projection)
     gmsh.model.mesh.setSizeAtParametricPoints(dim, tag, xi, size * 2)
   logger.info("%d curve sampled", len(curves))
@@ -541,7 +543,7 @@ def _reproject(input_srs, output_srs):
       input_srs.ImportFromWkt(p[1])
   ntags, nx, _ = gmsh.model.mesh.get_nodes()
   nx = nx.reshape(-1, 3)
-  nx = _tools.project_points(nx, input_srs, output_srs)
+  nx = project_points(nx, input_srs, output_srs)
   for i, x in zip(ntags, nx):
     if len(x) == 3:
       gmsh.model.mesh.set_node(i, [x[0], x[1], x[2]], [])
