@@ -38,7 +38,14 @@ classifiers = [
 # gmsh.convert_to_ugrid_mesh_file
 ugrid = ["xarray", "netcdf4"]
 dev = ["pytest", "ruff", "pre-commit"]
-doc = ["sphinx", "sphinx_rtd_theme", "sphinx-autodoc-typehints"]
+doc = [
+    "sphinx",
+    "sphinx_rtd_theme",
+    "sphinx-autodoc-typehints",
+    "sphinx-gallery",
+    "matplotlib",
+    "requests",
+]
 
 [project.urls]
 Homepage = "https://git.immc.ucl.ac.be/jlambrechts/seamsh"

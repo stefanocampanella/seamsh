@@ -1,12 +1,18 @@
+"""
+Area
+====
+This example revisits the GIS example (GIS Data) with use of a specific area
+to adapt locally the meshsize.
+In fact we made a mix between
+
+- the distance from the coast and porquerolle
+- the distance computed from the bathymetry
+
+This example is not run when the documentation is built: the file
+``data2/area_utm31.gpkg`` is missing from the data archive.
+"""
+
 # %%
-# Area
-# ========
-# This example revisits the GIS example (GIS Data) with use of a specific area
-# to adapt locally the meshsize.
-# In fact we made a mix between
-# - the distance from the coast and porquerolle
-# - the distance computed from the bathymetry
-#
 # This example starts as the previous one.
 
 import os
@@ -69,3 +75,8 @@ gmsh.write("gis_mesh.msh")
 
 
 seamsh.gmsh.convert_to_gis("gis_mesh.msh", output_srs, "gis_mesh.gpkg")
+
+# %%
+# gmsh is finalized when it is no longer needed.
+
+gmsh.finalize()

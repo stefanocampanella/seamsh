@@ -1,14 +1,15 @@
 # SPDX-FileCopyrightText: 2026 Stefano Campanella
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# %%
-# Disconnected Domains
-# ====================
-# Boundary coarsening keeps the water that can be reached from a point without
-# going through a passage narrower than the mesh size. A basin behind a narrow
-# strait is therefore lost, unless a point is given in that basin too. This
-# example builds two basins joined by a narrow channel and meshes them as two
-# separate pieces.
+"""
+Disconnected Domains
+====================
+Boundary coarsening keeps the water that can be reached from a point without
+going through a passage narrower than the mesh size. A basin behind a narrow
+strait is therefore lost, unless a point is given in that basin too. This
+example builds two basins joined by a narrow channel and meshes them as two
+separate pieces.
+"""
 
 import gmsh
 import numpy as np
@@ -80,3 +81,29 @@ both = seamsh.geometry.coarsen_boundaries(
 
 seamsh.gmsh.mesh(both, mesh_size)
 gmsh.write("disconnected.msh")
+
+# %%
+# The mesh, drawn from the nodes and triangles of the gmsh model (see the first
+# example), over the original boundary (grey).
+
+import matplotlib.pyplot as plt
+
+node_tags, xyz, _ = gmsh.model.mesh.getNodes()
+xyz = xyz.reshape(-1, 3)
+index = np.zeros(node_tags.max() + 1, int)
+index[node_tags] = np.arange(node_tags.size)
+_, triangle_nodes = gmsh.model.mesh.getElementsByType(2)
+triangles = index[triangle_nodes.reshape(-1, 3)]
+
+fig, ax = plt.subplots(figsize=(9, 4))
+ax.plot(corners[:, 0], corners[:, 1], color="0.6", linewidth=2)
+ax.triplot(xyz[:, 0] / 1e3, xyz[:, 1] / 1e3, triangles, color="k", linewidth=0.5)
+ax.set_aspect("equal")
+ax.set_xlabel("x (km)")
+ax.set_ylabel("y (km)")
+plt.show()
+
+# %%
+# gmsh is finalized when it is no longer needed.
+
+gmsh.finalize()

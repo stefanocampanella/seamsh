@@ -43,15 +43,26 @@ jobs:
             sphinx
             sphinx_rtd_theme
             sphinx-autodoc-typehints
+            sphinx-gallery
+            matplotlib-base
+            requests
           cache-environment: true
       - name: Build the C library
         run: python setup.py build_ext --inplace
-      # The examples are converted to pages, not run. Warnings are errors.
+      # The examples download their data (upstream's archives, the Natural Earth coastline) into
+      # examples/ unless it is there: keep it between runs.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            examples/data
+            examples/data2
+            examples/ne_10m_coastline
+          key: example-data-v1
+      # sphinx-gallery runs the examples (about a minute) and shows their figures. Warnings,
+      # including an example that fails, are errors.
       - name: Build the HTML
         working-directory: doc
-        run: |
-          python gen_examples.py
-          PYTHONPATH="$GITHUB_WORKSPACE" make html SPHINXOPTS="-W --keep-going"
+        run: PYTHONPATH="$GITHUB_WORKSPACE" make html SPHINXOPTS="-W --keep-going"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: doc/_build/html

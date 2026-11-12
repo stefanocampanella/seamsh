@@ -7,6 +7,7 @@ include seamshlib/*.c seamshlib/*.h seamshlib/LICENSE.gmsh.txt
 include CHANGELOG.rst
 recursive-include tests *.py
 graft tests/data
-graft examples
+# Not graft: the examples download data and write meshes into examples/.
+recursive-include examples *.py *.rst
 exclude seamsh/*.so
 global-exclude *.py[cod] __pycache__

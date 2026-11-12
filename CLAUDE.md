@@ -20,16 +20,21 @@ python -m pytest                                # all tests (imports seamsh from
 python -m pytest tests/test_mesh.py -k island   # one file / one test
 pre-commit run --all-files                      # ruff (check, format), codespell, clang-format on seamshlib/seamsh.c
 
-# Docs: examples/*.py are converted to rst, then Sphinx
-cd doc && python gen_examples.py && make html
+# Docs (needs the `doc` extra; seamsh importable, e.g. PYTHONPATH=$PWD). sphinx-gallery runs examples/*.py (~1 min,
+# downloads their data into examples/) and shows their figures; -D plot_gallery=0 shows the code without running it
+cd doc && make html SPHINXOPTS="-W --keep-going"
 ```
+
+Examples are sphinx-gallery scripts: a docstring with the title first, then `# %%` text cells and code. They run one
+after the other in one process, so each ends with `gmsh.finalize()`; each draws its mesh with matplotlib from the
+gmsh model. `doc/conf.py` (`filename_pattern`) decides which are run: example 5 is not (its data file is missing).
 
 - Runtime dependencies: `numpy`, `scipy`, `gdal>=3.1`, `gmsh`, `tqdm`; optional `xarray` and `netcdf4`
   (`convert_to_ugrid_mesh_file`). GDAL has no pip wheels (nor gmsh on Linux aarch64): use conda-forge or a container.
 - GitHub CI (`.github/workflows/ci.yml`) runs on `ubuntu-latest` in a conda-forge environment made with micromamba
   (Python 3.12 and the latest GDAL, gmsh, numpy, scipy), builds the library, then runs pytest and the hooks.
-  `.github/workflows/docs.yml` builds the docs in the same kind of environment (Sphinx warnings are errors) on every
-  pull request, and publishes them from `develop` on GitHub Pages (https://stefanocampanella.github.io/seamsh/;
+  `.github/workflows/docs.yml` builds the docs in the same kind of environment (Sphinx warnings and failing examples
+  are errors; the examples' data is cached) on every pull request, and publishes them from `develop` on GitHub Pages (https://stefanocampanella.github.io/seamsh/;
   the repository's Pages source must be "GitHub Actions"). The doc dependencies are the `doc` extra.
 - On JUPITER the login-node Python has none of these. Run everything in moby-dick's image, with the worktree first on
   the path: `apptainer exec --env PYTHONPATH=$PWD /e/project1/e-dev-2026d09-119/graphcast/moby-dick.sif <command>`

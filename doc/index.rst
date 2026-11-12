@@ -9,8 +9,8 @@ Seamsh
 
    self
    install
-   examples
-   seamsh 
+   examples/index
+   seamsh
 
 * :ref:`genindex`
 

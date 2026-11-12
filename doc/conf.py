@@ -36,7 +36,20 @@ extensions = [
         'sphinx.ext.autodoc',
         'sphinx.ext.napoleon',
         'sphinx_autodoc_typehints',
+        'sphinx_gallery.gen_gallery',
         ]
+
+# The examples (../examples/*.py) are run, and their figures shown, by sphinx-gallery: it
+# writes the pages into examples/. They run in ../examples, where they download their data and
+# write their meshes. Example 5 needs a file that the data archive does not have: it is shown
+# but not run.
+sphinx_gallery_conf = {
+    'examples_dirs': '../examples',
+    'gallery_dirs': 'examples',
+    'filename_pattern': r'/(?!5-)[^/]+\.py$',
+    'within_subsection_order': 'FileNameSortKey',
+    'write_computation_times': False,
+}
 
 napoleon_google_docstring = True
 napoleon_numpy_docstring = False
