@@ -28,6 +28,9 @@ cd doc && python gen_examples.py && make html
   (`convert_to_ugrid_mesh_file`). GDAL has no pip wheels (nor gmsh on Linux aarch64): use conda-forge or a container.
 - GitHub CI (`.github/workflows/ci.yml`) runs on `ubuntu-latest` in a conda-forge environment made with micromamba
   (Python 3.12 and the latest GDAL, gmsh, numpy, scipy), builds the library, then runs pytest and the hooks.
+  `.github/workflows/docs.yml` builds the docs in the same kind of environment (Sphinx warnings are errors) on every
+  pull request, and publishes them from `develop` on GitHub Pages (https://stefanocampanella.github.io/seamsh/;
+  the repository's Pages source must be "GitHub Actions"). The doc dependencies are the `doc` extra.
 - On JUPITER the login-node Python has none of these. Run everything in moby-dick's image, with the worktree first on
   the path: `apptainer exec --env PYTHONPATH=$PWD /e/project1/e-dev-2026d09-119/graphcast/moby-dick.sif <command>`
   (it has gmsh 4.12.1 from Ubuntu, GDAL, pytest, ruff, pre-commit and gcc, but no netCDF4: the UGRID test is

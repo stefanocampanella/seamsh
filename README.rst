@@ -14,7 +14,7 @@ Binary packages for 64 bits linux, windows and OSX are available on pypi_.
 .. _scipy : https://www.scipy.org
 .. _Seamsh : https://git.immc.ucl.ac.be/jlambrechts/seamsh
 .. _source code : https://git.immc.ucl.ac.be/jlambrechts/seamsh
-.. _documentation : http://jlambrechts.git-page.immc.ucl.ac.be/seamsh
+.. _documentation : https://stefanocampanella.github.io/seamsh/
 .. _bug reports : https://git.immc.ucl.ac.be/jlambrechts/seamsh/-/issues
 .. _GPL : https://www.gnu.org/licenses/gpl-3.0.html
 .. _LGPL : https://www.gnu.org/licenses/lgpl-3.0.html

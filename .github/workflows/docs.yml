@@ -1,0 +1,71 @@
+# SPDX-FileCopyrightText: 2026 Stefano Campanella
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Builds the documentation (Sphinx) on every pull request, and publishes it on GitHub Pages from develop.
+# The repository's Pages source must be "GitHub Actions" (Settings > Pages).
+name: Docs
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  # A newer push supersedes a pull request's build, but a deployment in progress is not interrupted.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+      # autodoc imports seamsh: it needs GDAL, gmsh and the C library, as the tests do.
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: seamsh-docs
+          create-args: >-
+            python=3.12
+            c-compiler
+            gdal
+            python-gmsh
+            numpy
+            scipy
+            tqdm
+            setuptools
+            sphinx
+            sphinx_rtd_theme
+            sphinx-autodoc-typehints
+          cache-environment: true
+      - name: Build the C library
+        run: python setup.py build_ext --inplace
+      # The examples are converted to pages, not run. Warnings are errors.
+      - name: Build the HTML
+        working-directory: doc
+        run: |
+          python gen_examples.py
+          PYTHONPATH="$GITHUB_WORKSPACE" make html SPHINXOPTS="-W --keep-going"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: doc/_build/html
+
+  deploy:
+    if: github.ref == 'refs/heads/develop' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
