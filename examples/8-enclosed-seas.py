@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Stefano Campanella
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # %%
 # Enclosed seas and a hierarchy of meshes
 # =======================================

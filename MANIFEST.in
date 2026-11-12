@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: 2026 Stefano Campanella
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# The source package must hold everything needed to build the C library (the headers are not
+# found by setuptools on its own), and not a library built in the source tree.
+include seamshlib/*.c seamshlib/*.h seamshlib/LICENSE.gmsh.txt
+include CHANGELOG.rst
+recursive-include tests *.py
+graft tests/data
+graft examples
+exclude seamsh/*.so
+global-exclude *.py[cod] __pycache__

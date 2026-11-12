@@ -33,7 +33,8 @@ cd doc && python gen_examples.py && make html
   (it has gmsh 4.12.1 from Ubuntu, GDAL, pytest, ruff, pre-commit and gcc, but no netCDF4: the UGRID test is
   skipped there).
 - `import seamsh` fails if `seamsh/libseamsh.so` has not been built; rebuild after every change to `seamshlib/`.
-- Metadata is in `pyproject.toml`; `setup.py` only defines the C library and the version (keep it in step with
+- Metadata is in `pyproject.toml`, and `MANIFEST.in` decides what goes into the source package (setuptools does
+  not find the C headers on its own: add new `seamshlib` files there). `setup.py` only defines the C library and the version (keep it in step with
   `CHANGELOG.rst`; upstream's GitLab CI overrides it from tags `v-*` / `w-*`). `.gitlab-ci.yml` is upstream's CI
   and does not run on GitHub.
 
@@ -99,11 +100,17 @@ Things that need several files to see:
 
 ## License
 
-`LICENSE.txt` is the reference. seamsh's own files are LGPL v3 or later (copyright UCLouvain; headers kept as they
-are, text in `COPYING.LESSER.txt`); `seamshlib/polymesh.c`, `polymesh.h` and `robustPredicates.h` come from gmsh
-(GPL v2 or later), so the compiled library, and seamsh as a whole, is distributed under the GPL v3 or later
-(`COPYING.txt`, README, classifier). Keep the existing header on source files; do not relicense. Upstream has not
-been asked which license it intends.
+`LICENSE.txt` is the reference. Upstream's files are LGPL v3 or later (copyright UCLouvain; headers kept as they
+are, text in `COPYING.LESSER.txt`). `seamshlib/polymesh.c` (a C port of gmsh's PolyMesh) and `robustPredicates.c`/`.h`
+(Shewchuk's predicates as modified in gmsh) come from gmsh, GPL v2 or later (`seamshlib/LICENSE.gmsh.txt`); so the
+compiled library, and seamsh as a whole, is GPL v3 or later (`COPYING.txt`, README, `project.license` in
+`pyproject.toml`). **Files added by the fork are GPL-3.0-or-later**: start each new file that can hold a comment with
+
+    # SPDX-FileCopyrightText: <year> <author>
+    # SPDX-License-Identifier: GPL-3.0-or-later
+
+and list the others in `LICENSE.txt`. Keep the existing header on upstream's files; do not relicense them. Upstream
+has not been asked which license it intends.
 
 ## Refactoring kit (untracked)
 

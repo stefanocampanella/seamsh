@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Stefano Campanella
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Mesh-size helpers of `seamsh.field`: callables `f(x[n, 2], projection) -> [n]`."""
 
 import numpy as np

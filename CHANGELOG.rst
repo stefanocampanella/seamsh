@@ -21,7 +21,8 @@ seamsh 0.5.0
 * a mesh size that is zero, negative or NaN raises an error instead of looping forever
 * the mesh size is scaled correctly along curves given in a projected coordinate system (in metres)
 * convert_to_gis and convert_to_ugrid_mesh_file work again
-* license statements made consistent (LICENSE.txt): seamsh's own files are LGPL v3 or later as before, the files from gmsh in seamshlib are GPL, so seamsh as a whole is distributed under the GPL v3 or later; the text of the LGPL is included
+* license statements made consistent (LICENSE.txt): seamsh's own files are LGPL v3 or later as before, the files from gmsh in seamshlib are GPL, so seamsh as a whole is distributed under the GPL v3 or later; the text of the LGPL and Gmsh's license (as of Gmsh 4.8.4) are included; files added in 0.5.0 are GPL v3 or later; the license is declared as an SPDX expression (pyproject.toml, setuptools >= 77)
+* the source package holds the C headers (it could not be compiled) and no longer a library built in the source tree; it also holds the tests and examples (MANIFEST.in)
 * new example: enclosed seas and a hierarchy of meshes (several points, two resolutions)
 * tests (pytest), pyproject.toml, examples and documentation updated to the current API (mesh works on the current gmsh model, Raster takes a gdal dataset)
 

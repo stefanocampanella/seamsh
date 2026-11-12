@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Stefano Campanella
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """The C library (`seamshlib/`), called through ctypes as `seamsh.geometry` and `seamsh.gmsh` do."""
 
 import numpy as np

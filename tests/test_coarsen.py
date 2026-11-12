@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Stefano Campanella
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Boundary coarsening (`seamsh.geometry.coarsen_boundaries`) on synthetic domains."""
 
 import gmsh

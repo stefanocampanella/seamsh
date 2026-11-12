@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Stefano Campanella
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Synthetic geometries and mesh measurements shared by the tests.
 
 Coordinates are metres in a projected reference system (UTM 31N); the shapes are about 100 km across.

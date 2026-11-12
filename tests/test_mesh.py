@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Stefano Campanella
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Meshing (`seamsh.gmsh.mesh`) on synthetic domains. Counts are checked within ranges: the exact
 numbers depend on the gmsh version."""
 

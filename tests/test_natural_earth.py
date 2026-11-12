@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Stefano Campanella
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """The whole chain on a real coastline: Natural Earth 1:110m (public domain, tests/data), in a polar
 stereographic plane centred on the North Pole, as moby-dick uses seamsh.
 

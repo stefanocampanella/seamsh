@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Stefano Campanella
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Domain topology: merging points, chaining boundary curves into closed loops, splitting curves."""
 
 import numpy as np
