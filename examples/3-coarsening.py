@@ -1,23 +1,25 @@
+"""
+Boundary Coarsening
+===================
+This example revisits the previous example (GIS Data) with an extra step to
+reduce the resolution of the input coastlines.
+
+This approach has two main advantages:
+
+- Thanks to the fitting of the input data resolution to the final mesh
+  element size, the quality of the elements near the boundary is improved.
+- The input curves do not have to form topologically valid closed loops.
+  The only requirement is that the external boundary should be closed
+  but the lines defining the boundaries can intersect each others.
+
+But:
+
+- Interior curves are not handled, they can be present as long as they
+  do not intersect the domain boundaries (external and islands) but they
+  won't be coarsened.
+"""
+
 # %%
-# Boundary Coarsening
-# ===================
-# This example revisits the previous example (GIS Data) with an extra step to
-# reduce the resolution of the input coastlines.
-#
-# This approach has two main advantages:
-#
-#   - Thanks to the fitting of the input data resolution to the final mesh
-#     element size, the quality of the elements near the boundary is improved.
-#   - The input curves do not have to form topologically valid closed loops.
-#     The only requirement is that the external boundary should be closed
-#     but the lines defining the boundaries can intersect each others.
-#
-# But :
-#
-#   - Interior curves are not handled, they can be present as long as they
-#     do not intersect the domain boundaries (external and islands) but they
-#     won't be coarsened.
-#
 # This example starts as the previous one.
 
 import os
@@ -84,3 +86,28 @@ coarse = seamsh.geometry.coarsen_boundaries(domain, (6.21, 42.95), lonlat, mesh_
 
 seamsh.gmsh.mesh(coarse, mesh_size)
 gmsh.write("coarse_boundary_mesh.msh")
+
+# %%
+# The mesh, drawn from the nodes and triangles of the gmsh model (see the first
+# example), in UTM zone 31 coordinates. The domain is clipped by the circle.
+
+import matplotlib.pyplot as plt
+
+node_tags, xyz, _ = gmsh.model.mesh.getNodes()
+xyz = xyz.reshape(-1, 3)
+index = np.zeros(node_tags.max() + 1, int)
+index[node_tags] = np.arange(node_tags.size)
+_, triangle_nodes = gmsh.model.mesh.getElementsByType(2)
+triangles = index[triangle_nodes.reshape(-1, 3)]
+
+fig, ax = plt.subplots(figsize=(7, 7))
+ax.triplot(xyz[:, 0] / 1e3, xyz[:, 1] / 1e3, triangles, color="k", linewidth=0.1)
+ax.set_aspect("equal")
+ax.set_xlabel("x (km)")
+ax.set_ylabel("y (km)")
+plt.show()
+
+# %%
+# gmsh is finalized when it is no longer needed.
+
+gmsh.finalize()

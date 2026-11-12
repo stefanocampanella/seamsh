@@ -1,8 +1,9 @@
-# %%
-# Simple Geometry
-# ===============
-# This example illustrates how to insert different types of curves
-# directly from numpy arrays and osr spatial references.
+"""
+Simple Geometry
+===============
+This example illustrates how to insert different types of curves
+directly from numpy arrays and osr spatial references.
+"""
 
 import gmsh
 import numpy as np
@@ -105,3 +106,29 @@ seamsh.gmsh.mesh(domain, mesh_size, version=2.0)
 # The mesh is in the current gmsh model: gmsh writes it to a file.
 
 gmsh.write("basic_geometry.msh")
+
+# %%
+# The nodes and triangles of the mesh can also be taken from the gmsh model as
+# numpy arrays, here to draw the mesh with matplotlib. gmsh numbers the nodes
+# with tags: ``index`` turns a tag into a row of ``xyz``.
+
+import matplotlib.pyplot as plt
+
+node_tags, xyz, _ = gmsh.model.mesh.getNodes()
+xyz = xyz.reshape(-1, 3)
+index = np.zeros(node_tags.max() + 1, int)
+index[node_tags] = np.arange(node_tags.size)
+_, triangle_nodes = gmsh.model.mesh.getElementsByType(2)
+triangles = index[triangle_nodes.reshape(-1, 3)]
+
+fig, ax = plt.subplots(figsize=(7, 7))
+ax.triplot(xyz[:, 0], xyz[:, 1], triangles, color="k", linewidth=0.2)
+ax.set_aspect("equal")
+ax.set_xlabel("longitude (degrees)")
+ax.set_ylabel("latitude (degrees)")
+plt.show()
+
+# %%
+# gmsh is finalized when it is no longer needed.
+
+gmsh.finalize()

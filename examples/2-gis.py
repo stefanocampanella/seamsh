@@ -1,9 +1,11 @@
+"""
+GIS Data
+========
+This example illustrates how the library interacts with various GIS file
+formats directly from numpy arrays and osr spatial references.
+"""
+
 # %%
-# GIS Data
-# ========
-# This example illustrates how the lirbary interacts with various GIS file
-# formats directly from numpy arrays and osr spatial references.
-#
 # Let's download some data.
 
 import os
@@ -109,6 +111,30 @@ output_srs.ImportFromProj4("+proj=latlon +ellps=WGS84")
 seamsh.gmsh.mesh(domain, mesh_size, output_srs=output_srs)
 gmsh.write("gis_mesh.msh")
 
+# %%
+# The mesh, drawn from the nodes and triangles of the gmsh model (see the first
+# example). The mesh is finer around the island of Porquerolles.
+
+import matplotlib.pyplot as plt
+
+node_tags, xyz, _ = gmsh.model.mesh.getNodes()
+xyz = xyz.reshape(-1, 3)
+index = np.zeros(node_tags.max() + 1, int)
+index[node_tags] = np.arange(node_tags.size)
+_, triangle_nodes = gmsh.model.mesh.getElementsByType(2)
+triangles = index[triangle_nodes.reshape(-1, 3)]
+
+fig, ax = plt.subplots(figsize=(9, 6))
+ax.triplot(xyz[:, 0], xyz[:, 1], triangles, color="k", linewidth=0.1)
+ax.set_aspect(1 / np.cos(np.radians(xyz[:, 1].mean())))
+ax.set_xlabel("longitude (degrees)")
+ax.set_ylabel("latitude (degrees)")
+plt.show()
+
+# %%
+# seamsh.gmsh.reproject writes an existing mesh file in another coordinate
+# system (here the same one).
+
 seamsh.gmsh.reproject("gis_mesh.msh", None, "gis_mesh_lonlat.msh", output_srs)
 
 # %%
@@ -116,3 +142,8 @@ seamsh.gmsh.reproject("gis_mesh.msh", None, "gis_mesh_lonlat.msh", output_srs)
 # into a shape file or into a geo package file.
 
 seamsh.gmsh.convert_to_gis("gis_mesh.msh", None, "gis_mesh.gpkg")
+
+# %%
+# gmsh is finalized when it is no longer needed.
+
+gmsh.finalize()

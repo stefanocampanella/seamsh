@@ -1,11 +1,13 @@
+"""
+Advanced Gmsh / Quad Mesh
+=========================
+Seamsh uses gmsh internally. The whole gmsh python api is exposed through the
+seamsh.gmsh.gmsh module (the repetition is not a typo). This example is a
+variation on the previous one using the gmsh api to generate a quadrangular
+instead of triangular mesh.
+"""
+
 # %%
-# Advanced Gmsh / Quad Mesh
-# =========================
-# Seamsh uses gmsh internally. The whole gmsh python api is exposed through the
-# seamsh.gmsh.gmsh module (the repetition is not a typo). This example is a
-# variation on the previous one using the gmsh api to generate a quadrangular
-# instead of triangular mesh.
-#
 # We start as usual.
 
 import os
@@ -63,3 +65,33 @@ gmsh.option.setNumber("Mesh.Algorithm", 8)
 
 seamsh.gmsh.mesh(coarse, mesh_size)
 gmsh.write("quad_mesh.msh")
+
+# %%
+# The mesh, drawn from the nodes and elements of the gmsh model (see the first
+# example). Quadrangles are gmsh elements of type 3; the few triangles that the
+# recombination leaves are of type 2.
+
+import matplotlib.pyplot as plt
+from matplotlib.collections import PolyCollection
+
+node_tags, xyz, _ = gmsh.model.mesh.getNodes()
+xyz = xyz.reshape(-1, 3)
+index = np.zeros(node_tags.max() + 1, int)
+index[node_tags] = np.arange(node_tags.size)
+polygons = []
+for element_type, n_nodes in ((2, 3), (3, 4)):
+    _, element_nodes = gmsh.model.mesh.getElementsByType(element_type)
+    polygons.extend(xyz[index[element_nodes.reshape(-1, n_nodes)], :2] / 1e3)
+
+fig, ax = plt.subplots(figsize=(7, 7))
+ax.add_collection(PolyCollection(polygons, facecolor="none", edgecolor="k", linewidth=0.1))
+ax.autoscale()
+ax.set_aspect("equal")
+ax.set_xlabel("x (km)")
+ax.set_ylabel("y (km)")
+plt.show()
+
+# %%
+# gmsh is finalized when it is no longer needed.
+
+gmsh.finalize()
