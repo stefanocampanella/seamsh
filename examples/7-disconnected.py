@@ -27,26 +27,26 @@ domain_srs = osr.SpatialReference()
 domain_srs.ImportFromEPSG(32631)
 
 corners = np.array(
-    [
-        [0, 0],
-        [40, 0],
-        [40, 19],
-        [60, 19],
-        [60, 0],
-        [100, 0],
-        [100, 40],
-        [60, 40],
-        [60, 21],
-        [40, 21],
-        [40, 40],
-        [0, 40],
-        [0, 0],
-    ]
+  [
+    [0, 0],
+    [40, 0],
+    [40, 19],
+    [60, 19],
+    [60, 0],
+    [100, 0],
+    [100, 40],
+    [60, 40],
+    [60, 21],
+    [40, 21],
+    [40, 40],
+    [0, 40],
+    [0, 0],
+  ]
 )
 points = [corners[0]]
 for a, b in zip(corners[:-1], corners[1:]):
-    n = int(np.abs(b - a).max() / 2)
-    points.extend(a + (b - a) * i / n for i in range(1, n + 1))
+  n = int(np.abs(b - a).max() / 2)
+  points.extend(a + (b - a) * i / n for i in range(1, n + 1))
 
 domain = seamsh.geometry.Domain(domain_srs)
 domain.add_boundary_curve(np.array(points) * 1e3, "coast", domain_srs)
@@ -57,7 +57,7 @@ domain.add_boundary_curve(np.array(points) * 1e3, "coast", domain_srs)
 
 
 def mesh_size(x, projection):
-    return np.full(x.shape[0], 5e3)
+  return np.full(x.shape[0], 5e3)
 
 
 # %%
@@ -70,9 +70,7 @@ west_only = seamsh.geometry.coarsen_boundaries(domain, (20e3, 20e3), domain_srs,
 # With one point in each basin, both are kept. The channel, which the mesh
 # cannot resolve, stays closed: the domain is made of two regions.
 
-both = seamsh.geometry.coarsen_boundaries(
-    domain, [(20e3, 20e3), (80e3, 20e3)], domain_srs, mesh_size
-)
+both = seamsh.geometry.coarsen_boundaries(domain, [(20e3, 20e3), (80e3, 20e3)], domain_srs, mesh_size)
 
 # %%
 # Each region is meshed on its own: the mesh is in two pieces. Note that the

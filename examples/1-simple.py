@@ -34,10 +34,10 @@ domain = seamsh.geometry.Domain(domain_srs)
 # point on each control point.
 
 domain.add_boundary_curve(
-    [[0, 0], [-0.2, 0.25], [-0.2, 0.75], [0, 1]],
-    "wall0",
-    domain_srs,
-    curve_type=CurveType.STRICTPOLYLINE,
+  [[0, 0], [-0.2, 0.25], [-0.2, 0.75], [0, 1]],
+  "wall0",
+  domain_srs,
+  curve_type=CurveType.STRICTPOLYLINE,
 )
 
 # %%
@@ -94,7 +94,7 @@ domain.add_interior_points(x, "forcedpoint2", domain_srs)
 
 
 def mesh_size(x, projection):
-    return 0.005 + (1 + np.sin(4 * np.pi * x[:, 1] * np.pi * x[:, 0])) * 0.01
+  return 0.005 + (1 + np.sin(4 * np.pi * x[:, 1] * np.pi * x[:, 0])) * 0.01
 
 
 # %%

@@ -6,6 +6,51 @@ which branched from upstream's 0.4.18 (https://git.immc.ucl.ac.be/jlambrechts/se
 own releases since then (0.4.19 and later, on PyPI) are not listed here: they are different code,
 and upstream's 0.5 is not this 0.5.0+fork.
 
+seamsh 0.6.0+fork
+-----------------
+* **mesh quality** (gamma: twice the radius of the inscribed circle over that of the circumscribed one, 1 for an
+  equilateral triangle; moby-dick's targets: worst gamma >= 0.4, under 1 % of triangles below 0.8, no angle under
+  15 degrees):
+
+  * **meshes change**: mesh() runs gmsh's optimiser Relocate2D after meshing (``optimize=True``, the default), in the
+    plane of the domain: fewer poor triangles at every level of the 1:10m global ocean (e.g. below 0.8: 0.13 ->
+    0.10 % at 50 km, 0.82 -> 0.61 % at 400 km); the worst triangle moves either way (400 km: 0.47 -> 0.54, 200 km:
+    0.63 -> 0.60). Same nodes and triangles, other positions. ``optimize=False`` gives the previous meshes
+  * ``mesh(valence_repair=True)`` uses gmsh's valence repair (option Mesh.ValenceRepair2D), which only gmsh's branch
+    valence-repair-2d has today; with another gmsh it is an error that says so
+  * coarsen_boundaries warns when a point of x0 is not in the coarsened domain: a seeded sea a few times the size
+    across can be thinned to nothing by the coarsening (1:10m: the Black Sea at 300 km), which happened silently
+  * found by measuring (tests/benchmarks/quality_levels.py), for the users: a coarse mesh on a coastline coarsened
+    for a finer one is poor along the coast (400 km on a 10 km coastline: worst gamma 0.017); coarsen the coastline
+    for each level, at a fraction of its size, and give seeds in the open ocean too (a coastline coarsened at
+    500 km closes the Arctic's passages)
+
+* faster: the edges of the background size grid are made unique by sorting instead of numpy 2's np.unique (25 times
+  slower on integers; 7.5 of the 80 s of a 25 km global mesh), with the same mesh; reproject and mesh(output_srs=...)
+  move all the nodes in one call when gmsh has mesh.setNodes (gmsh 5 development builds; 5 s for a 25 km global
+  mesh with one call per node); the docstring of mesh says how to write binary files (several times faster)
+* fixes from upstream's releases since 0.4.18 that still applied here:
+
+  * **meshes change where tags overlap**: in coarsen_boundaries, a curve shorter than the size between two longer
+    ones (e.g. a river mouth) keeps its tag; it took the tag of the long curves and was lost (upstream's f28aa56).
+    The 1:10m coastline mesh of moby-dick (one tag) is unchanged; the 1:110m coastline at 300 km, where one feature
+    is tagged "Country", gives 5,512 nodes and 10,283 triangles instead of 5,532 and 10,323
+  * a projection stored in a mesh file on several lines (e.g. a pretty-printed WKT) is read by reproject,
+    convert_to_gis and convert_to_ugrid_mesh_file; only its first line was (c873f34)
+  * reproject keeps the node numbers when it writes MSH 2 (with gmsh 4.13 or later; ce6ec1a, 6442e2e), and says
+    when no projection is given or stored
+  * features of a shapefile whose tag field is unset or empty are meshed in no physical group; mesh() failed
+    (5b45b37)
+  * the curves outside the mesh are found with a table of nodes instead of a Python set (8db84ce, adddf85)
+
+* Python 3.10 or later (3.9 is past its end of life)
+* a missing C library is an ImportError that says how to build it
+* the binding of the C library uses numpy's ndpointer and frees the triangulations with weakref.finalize;
+  seamsh/_tools.py is split into _libseamsh.py, _projection.py and _progress.py (internal modules)
+* tooling as in moby-dick: code formatted with ruff (2-space indentation, 120 columns), checked with ty, the
+  copyright and license of every file stated for REUSE (REUSE.toml, LICENSES/), development tools in the ``dev``
+  dependency group (``pip install --group dev``), and a CI with lint, REUSE and test jobs, with coverage (80 % gate)
+
 seamsh 0.5.0+fork
 -----------------
 * the version carries the local label ``+fork``, the project's links (README, package metadata,

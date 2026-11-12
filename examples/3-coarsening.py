@@ -27,10 +27,10 @@ import tarfile
 import urllib.request
 
 if not os.path.isdir("data"):
-    url = "https://nextcloud.cism.ucl.ac.be/s/e7daeWsMpormjpz/download/data-test-1.tar.gz"
-    urllib.request.urlretrieve(url, "data-test-1.tar.gz")
-    f = tarfile.open("data-test-1.tar.gz", "r:*")
-    f.extractall()
+  url = "https://nextcloud.cism.ucl.ac.be/s/e7daeWsMpormjpz/download/data-test-1.tar.gz"
+  urllib.request.urlretrieve(url, "data-test-1.tar.gz")
+  f = tarfile.open("data-test-1.tar.gz", "r:*")
+  f.extractall()
 
 import gmsh
 import numpy as np
@@ -59,9 +59,7 @@ domain.add_boundary_curves_shp("data/data_no_duplicate.shp", "physical", CurveTy
 # Clip the domain by a circle in UTM (zone32) coordinates
 
 alphas = np.linspace(0, 2 * np.pi, 200)
-circle_points = np.array([[272e3, 4763e3]]) + 50e3 * np.column_stack(
-    [np.sin(alphas), np.cos(alphas)]
-)
+circle_points = np.array([[272e3, 4763e3]]) + 50e3 * np.column_stack([np.sin(alphas), np.cos(alphas)])
 domain.add_boundary_curve(circle_points, "open", utm32)
 
 dist_coast = seamsh.field.Distance(domain, 100, ["coast", "island"])
@@ -69,10 +67,10 @@ dist_porquerolles = seamsh.field.Distance(domain, 20, ["porquerolles"])
 
 
 def mesh_size(x, projection):
-    s_coast = np.clip((dist_coast(x, projection) - 400) * 0.5, 200, 5000)
-    s_porq = np.clip((dist_porquerolles(x, projection) - 200) * 0.5, 50, 5000)
-    s_dist = np.minimum(s_coast, s_porq)
-    return s_dist
+  s_coast = np.clip((dist_coast(x, projection) - 400) * 0.5, 200, 5000)
+  s_porq = np.clip((dist_porquerolles(x, projection) - 200) * 0.5, 50, 5000)
+  s_dist = np.minimum(s_coast, s_porq)
+  return s_dist
 
 
 # %%

@@ -17,17 +17,29 @@ boundary coarsening in `seamshlib/seamsh.c` is later than the article and is doc
 ## Commands
 
 ```bash
-# Build the C library in place (writes seamsh/libseamsh.so, which _tools.py loads with ctypes at import time)
+# Development tools (pinned ruff and ty, pytest-cov, pre-commit, stubs): a dependency group, pip >= 25.1
+python -m pip install --group dev
+
+# Build the C library in place (writes seamsh/libseamsh.so, which _libseamsh.py loads with ctypes at import time)
 python setup.py build_ext --inplace
 
 python -m pytest                                # all tests (imports seamsh from the source tree), ~10 s
 python -m pytest tests/test_mesh.py -k island   # one file / one test
-pre-commit run --all-files                      # ruff (check, format), codespell, clang-format on seamshlib/seamsh.c
+python -m pytest --cov                          # with branch coverage; fails under 80 % (86 % in Nov 2026)
+# Mesh quality of the 1:10m global ocean per level (minutes; Natural Earth's ne_10m_coastline, downloaded)
+python tests/benchmarks/quality_levels.py ne_10m_coastline.shp --levels 25 50 100 200 400 --fraction 1.0 --worst 3
+pre-commit run --all-files                      # ruff check/format, codespell, clang-format (seamsh.c), reuse, ty
 
-# Docs (needs the `doc` extra; seamsh importable, e.g. PYTHONPATH=$PWD). sphinx-gallery runs examples/*.py (~1 min,
+# Docs (needs the `doc` group; seamsh importable, e.g. PYTHONPATH=$PWD). sphinx-gallery runs examples/*.py (~1 min,
 # downloads their data into examples/) and shows their figures; -D plot_gallery=0 shows the code without running it
 cd doc && make html SPHINXOPTS="-W --keep-going"
 ```
+
+Conventions are moby-dick's: ruff with 2-space indentation, 120 columns, double quotes (ruff and ty pinned in the dev
+group and in `.pre-commit-config.yaml`: keep them in sync, and with moby-dick); type annotations that ty accepts
+(`X | None` for None defaults, `numpy.typing.ArrayLike` for what `np.asarray` takes); `reuse lint` clean. Commits that
+only reformat go into `.git-blame-ignore-revs`. Locally, `reuse lint` also sees untracked files (e.g. `.claude/`),
+which it reports; CI checks a clean checkout.
 
 Examples are sphinx-gallery scripts: a docstring with the title first, then `# %%` text cells and code. They run one
 after the other in one process, so each ends with `gmsh.finalize()`; each draws its mesh with matplotlib from the
@@ -35,15 +47,19 @@ gmsh model. `doc/conf.py` (`filename_pattern`) decides which are run: example 5 
 
 - Runtime dependencies: `numpy`, `scipy`, `gdal>=3.1`, `gmsh`, `tqdm`; optional `xarray` and `netcdf4`
   (`convert_to_ugrid_mesh_file`). GDAL has no pip wheels (nor gmsh on Linux aarch64): use conda-forge or a container.
-- GitHub CI (`.github/workflows/ci.yml`) runs on `ubuntu-latest` in a conda-forge environment made with micromamba
-  (Python 3.12 and the latest GDAL, gmsh, numpy, scipy), builds the library, then runs pytest and the hooks.
+- GitHub CI (`.github/workflows/ci.yml`), as moby-dick's: three jobs. `lint` runs the hooks that need no environment;
+  `reuse` runs `reuse lint`; `tests` makes a conda-forge environment with micromamba (Python 3.12 and the latest
+  GDAL, gmsh, numpy, scipy, xarray, netCDF4, a C compiler), installs the dev group with pip, builds the library, runs
+  ty, then pytest with coverage (summary in the run, `coverage.xml` artifact, Codecov upload with the secret
+  `CODECOV_TOKEN`, which cannot fail the job). Python >= 3.10.
   `.github/workflows/docs.yml` builds the docs in the same kind of environment (Sphinx warnings and failing examples
   are errors; the examples' data is cached) on every pull request, and publishes them from `develop` on GitHub Pages (https://stefanocampanella.github.io/seamsh/;
-  the repository's Pages source must be "GitHub Actions"). The doc dependencies are the `doc` extra.
+  the repository's Pages source must be "GitHub Actions"). The doc dependencies are the `doc` dependency group.
 - On JUPITER the login-node Python has none of these. Run everything in moby-dick's image, with the worktree first on
   the path: `apptainer exec --env PYTHONPATH=$PWD /e/project1/e-dev-2026d09-119/graphcast/moby-dick.sif <command>`
-  (it has gmsh 4.12.1 from Ubuntu, GDAL, pytest, ruff, pre-commit and gcc, but no netCDF4: the UGRID test is
-  skipped there).
+  (it has gmsh 4.12.1 from Ubuntu, GDAL, pytest, ruff, pre-commit and gcc, but no netCDF4: the UGRID tests are
+  skipped there, and so is the MSH 2 numbering test, which needs gmsh 4.13). The conda-forge environment of CI has
+  everything, including ty and reuse from the dev group.
 - `import seamsh` fails if `seamsh/libseamsh.so` has not been built; rebuild after every change to `seamshlib/`.
 - Metadata is in `pyproject.toml`, and `MANIFEST.in` decides what goes into the source package (setuptools does
   not find the C headers on its own: add new `seamshlib` files there). `setup.py` only defines the C library and the version (keep it in step with
@@ -56,6 +72,14 @@ basins joined by a channel, two separate squares) and the mesh measurements; `co
 gives each test a fresh model (`model` fixture). `test_natural_earth.py` runs the whole chain on the Natural Earth
 1:110m coastline (`tests/data`). Mesh counts are asserted within ranges, because they depend on the gmsh version.
 Every test has a docstring saying what it checks and why; every bug fix comes with a test that failed before.
+
+**Mesh quality** is what matters most downstream (moby-dick builds hierarchies of global ocean meshes for GNNs). It
+is measured with `tests/quality.py` (`mesh_quality()` of the current gmsh model): gamma (twice the inscribed over the
+circumscribed radius; gmsh's "gamma", moby-dick's metric under the same name), angles, node degree, poor triangles at
+the boundary. The targets agreed with moby-dick are there (worst gamma >= 0.4, < 1 % below 0.8, no angle under 15
+degrees, >= 80 % of nodes of degree 6 at 25-100 km), and `test_natural_earth.py` asserts them per level on 1:110m.
+`tests/benchmarks/quality_levels.py` (not run by pytest: needs the 1:10m coastline, minutes) gives the table for 25 to
+400 km; run it before and after anything that touches the coarsening or the meshing, and report the numbers.
 
 gmsh's quadrangle algorithm (`Mesh.Algorithm` 8) ends the process with a segmentation fault in builds of gmsh
 without ANN, such as Ubuntu 24.04's gmsh 4.12.1 (the one in moby-dick's image), even on a plain square; the
@@ -74,8 +98,11 @@ Python package `seamsh/` plus a small C library `seamshlib/` compiled into `seam
 - `gmsh.py`: `mesh()` builds the gmsh geometry (one plane surface per region) and meshes it; also `reproject`,
   `convert_to_gis`, `convert_to_ugrid_mesh_file`, `merge_meshes`.
 - `field.py`: mesh-size helpers `Distance`, `Raster`, `Inpoly`.
-- `_tools.py`: `project_points` (reprojection, with a cache of transformations) and the ctypes binding
-  (`gen_boundaries`, `PolyMesh`): argument types are declared there, once.
+- `_projection.py`: `project_points` (reprojection, with least-recently-used caches of transformations, by
+  definition and by identity of the projection objects). `_progress.py`: the progress bars (`show_progress`).
+- `_libseamsh.py`: the ctypes binding of `libseamsh.so` (`coarsen_boundary_points`, `PolyMesh`). Argument types are
+  declared there, once, arrays through `numpy.ctypeslib.ndpointer`; memory allocated by the library is freed in
+  `finally` blocks or by `weakref.finalize`.
 - `seamshlib/seamsh.c`: boundary coarsening (`gen_boundaries_from_points`); the file starts with a description of
   the algorithm and the data layout. `polymesh.c` (from gmsh), `robustPredicates.c` (Shewchuk), `qsort.h` and
   `vector.h` are third-party: do not reformat or refactor them.
@@ -88,24 +115,36 @@ Things that need several files to see:
 - **gmsh global state.** seamsh never calls `gmsh.initialize()`; the caller does. `mesh()` works on the *current*
   gmsh model and does not write a file (the caller calls `gmsh.write`). Curve sampling (`gmsh._curve_sample`, used by
   `coarsen_boundaries` and `field.Distance`) builds each curve in a temporary gmsh model and restores the caller's.
-  `mesh()` stores the output projection as the model attribute `Projection` (`["WKT", wkt]`), which `reproject` and
-  `convert_to_gis` read back. gmsh options set by `mesh()` stay set.
+  `mesh()` stores the output projection as the model attribute `Projection` (`["WKT", wkt]`), which `reproject`,
+  `convert_to_gis` and `convert_to_ugrid_mesh_file` read back (`_stored_projection`, which joins a WKT on several
+  lines). gmsh options set by `mesh()` stay set.
 - **Circular import.** `geometry.py` imports `_curve_sample` from `gmsh.py` after `Domain` is defined, because
   `gmsh.py` imports `geometry`.
-- **Coarsening** (`geometry.coarsen_boundaries` then C): sample every boundary curve at half the size, merge points
+- **Coarsening** (`geometry.coarsen_boundaries` then C, `coarsen_boundary_points`): sample every boundary curve at half the size, merge points
   and build their tag lists (`_point_tag_lists`), jitter (seeded, local generator), scipy Delaunay, then in C: flood
   fill from the triangles holding the seed points `x0`, crossing only edges longer than the local size (anything
   behind a strait narrower than the size is dropped unless it has its own seed), edge collapses, boundary extraction
-  into tagged closed loops moved inwards by size/50. The C code reports errors by return code (raised as
+  into tagged closed loops moved inwards by size/50 (a segment takes, among the tags of its two ends, the one carried
+  by the fewest sampled points, so a short curve keeps its tag; a loop is cut where the tag changes). The C code reports errors by return code (raised as
   `RuntimeError`), never exits, and orients triangles from their neighbours (per-triangle orientation breaks on the
   slivers that straight boundaries produce).
 - **Meshing** (`gmsh.mesh`): with `smoothness > 0` (default 0.3) `_mesh_bgrid` gives gmsh the size on a background
   triangulation (`PolyMesh`), refined and smoothed; with `smoothness <= 0`, `_mesh_successive` does 1D meshing then
-  three adaptation passes. Physical groups are named after curve tags; the surfaces are in the group `domain`.
+  three adaptation passes. Physical groups are named after curve tags (an unset or empty tag: no group); the
+  surfaces are in the group `domain`.
   Curves with no node in a surface element (outlines of islands smaller than the mesh) are taken out of their
   physical group so they are not written: gmsh refuses to delete them. A *region* smaller than the mesh size is
   never dropped (`_keep_small_regions`): its outer boundary gets three segments (transfinite curves), i.e. one
-  triangle, so that meshes of the same domain at several resolutions cover the same basins.
+  triangle, so that meshes of the same domain at several resolutions cover the same basins. After meshing,
+  gmsh's `Relocate2D` moves the nodes of poor triangles (`optimize=True`, in the plane of the domain, before
+  `_reproject`). gmsh options that only some builds have (`Mesh.ValenceRepair2D`, `setNodes`) are probed
+  (`_gmsh_has_option`, `getattr`), never inferred from the version; seamsh must work with released gmsh (4.12-4.15).
+- **Coarse levels**: a mesh on a coastline coarsened for a finer size is poor along the coast; a coastline coarsened
+  at the level's size loses seeded seas a few sizes across (the C edge collapses thin them to nothing:
+  `_warn_about_lost_seeds` reports it). Per-level coarsening is the caller's choice (moby-dick's), not seamsh's.
+  Tried and dropped (Nov 2026): cutting sharp corners of the coarsened boundary (none sharper than 30 degrees within a
+  loop: the poor spots are land walls a few km wide, where chains of islands were joined, and their junctions); a
+  size cap at narrow parts of the domain (too slow as written).
 - **Outputs are meant to be reproducible.** Downstream meshes are compared with references to within rounding:
   anything that changes sampled points, the jitter, the collapses, the inward shift or the gmsh call order changes
   meshes (same quality, other nodes). Such a change must be deliberate, and reported with before/after numbers.
@@ -121,8 +160,11 @@ compiled library, and seamsh as a whole, is GPL v3 or later (`COPYING.txt`, READ
     # SPDX-FileCopyrightText: <year> <author>
     # SPDX-License-Identifier: GPL-3.0-or-later
 
-and list the others in `LICENSE.txt`. Keep the existing header on upstream's files; do not relicense them. Upstream
-has not been asked which license it intends.
+and cover those that cannot in `REUSE.toml`. Keep the existing header on upstream's files; do not relicense them:
+code moved out of an upstream file keeps its license and copyright (`_libseamsh.py`, `_projection.py` and
+`_progress.py`, from upstream's `_tools.py`, are LGPL-3.0-or-later with UCLouvain's copyright, in SPDX headers).
+`REUSE.toml` gives the license of upstream's and third-party files without touching their headers; the texts are in
+`LICENSES/`; `reuse lint` checks everything. Upstream has not been asked which license it intends.
 
 ## Refactoring kit (untracked)
 

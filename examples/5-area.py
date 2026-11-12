@@ -20,10 +20,10 @@ import tarfile
 import urllib.request
 
 if not os.path.isdir("data2"):
-    url = "https://nextcloud.cism.ucl.ac.be/s/TfY6tCzrqiKaTTX/download/data-test-2.tar.gz"
-    urllib.request.urlretrieve(url, "data-test-2.tar.gz")
-    f = tarfile.open("data-test-2.tar.gz", "r:*")
-    f.extractall()
+  url = "https://nextcloud.cism.ucl.ac.be/s/TfY6tCzrqiKaTTX/download/data-test-2.tar.gz"
+  urllib.request.urlretrieve(url, "data-test-2.tar.gz")
+  f = tarfile.open("data-test-2.tar.gz", "r:*")
+  f.extractall()
 
 import gmsh
 import numpy as np
@@ -58,13 +58,13 @@ in_area = seamsh.field.Inpoly(domain_poly, ["noraster"])
 
 
 def mesh_size(x, projection):
-    s_coast = np.clip((dist_coast(x, projection) - 400) * 0.5, 200, 5000)
-    s_porq = np.clip((dist_porquerolles(x, projection) - 200) * 0.5, 50, 5000)
-    s_dist = np.minimum(s_coast, s_porq)
-    bath = -bath_field(x, projection)
-    s_bath = np.sqrt(np.clip(bath, 100, 4000)) * 100
-    s_mix = np.where(in_area(x, projection), s_dist, s_bath)
-    return s_mix
+  s_coast = np.clip((dist_coast(x, projection) - 400) * 0.5, 200, 5000)
+  s_porq = np.clip((dist_porquerolles(x, projection) - 200) * 0.5, 50, 5000)
+  s_dist = np.minimum(s_coast, s_porq)
+  bath = -bath_field(x, projection)
+  s_bath = np.sqrt(np.clip(bath, 100, 4000)) * 100
+  s_mix = np.where(in_area(x, projection), s_dist, s_bath)
+  return s_mix
 
 
 output_srs = osr.SpatialReference()

@@ -4,7 +4,8 @@
 # The source package must hold everything needed to build the C library (the headers are not
 # found by setuptools on its own), and not a library built in the source tree.
 include seamshlib/*.c seamshlib/*.h seamshlib/LICENSE.gmsh.txt
-include CHANGELOG.rst
+include CHANGELOG.rst REUSE.toml
+graft LICENSES
 recursive-include tests *.py
 graft tests/data
 # Not graft: the examples download data and write meshes into examples/.
