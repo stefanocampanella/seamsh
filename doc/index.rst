@@ -10,6 +10,7 @@ Seamsh
    self
    install
    examples/index
+   fork
    seamsh
 
 * :ref:`genindex`
