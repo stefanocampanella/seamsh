@@ -147,3 +147,16 @@ def test_boundary_points_move_towards_the_domain():
     for corner in RING_POINTS[4:]:
         outwards = np.sign(np.array(corner) - 5) * step
         assert np.abs(inner - (corner + outwards)).max(axis=1).min() < 1e-12
+
+
+def test_polymesh_is_freed(monkeypatch):
+    """The background triangulation is allocated by the C library and given back when the
+    PolyMesh object goes (it leaked: 2.6 GB after 200 triangulations of 20,000 points)."""
+    freed = []
+    real = _tools.lib.polymesh_delete
+    monkeypatch.setattr(_tools.lib, "polymesh_delete", lambda p: freed.append(p.value) or real(p))
+    pm = _tools.PolyMesh(np.array([0.0, 0.0]), np.array([1.0, 1.0]))
+    pm.add_points(np.random.default_rng(0).random((100, 2)))
+    address = pm._ptr.value
+    del pm
+    assert freed == [address]

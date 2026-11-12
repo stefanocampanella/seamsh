@@ -18,8 +18,12 @@ seamsh 0.5.0
 * errors of the C library are raised as Python exceptions instead of ending the process
 * outlines of islands smaller than the mesh size are no longer written to the mesh file (they were boundary elements on nodes that belong to no triangle)
 * the view and field used for the mesh size are removed from gmsh after meshing
-* a mesh size that is zero, negative or NaN raises an error instead of looping forever
-* the mesh size is scaled correctly along curves given in a projected coordinate system (in metres)
+* a mesh size that is zero, negative or NaN raises an error instead of looping forever, also where it is asked outside the domain: with smoothness > 0 the size is evaluated on the whole bounding box of the domain, where it must be positive too (e.g. a size from bathymetry on land); the error names a point
+* a domain can be meshed several times (e.g. at several resolutions): the second call failed with "Invalid topology" where two loops touch inside their curves
+* the background triangulation of the mesh size is freed after meshing (it leaked, about 11 MB per 20,000 points)
+* the regions of interior curves and points are found at once, and not at all for a domain of one region; point-in-polygon tests use bounded memory whatever the size of the loops; transformations between the same projection objects are found without exporting their definitions (a coarsening and 300 km mesh of the 1:10m coastline: 7.2 s to 4.6 s, profiled)
+* convert_to_ugrid_mesh_file uses the projection stored in the mesh file when projection is None
+* the mesh size is scaled correctly along curves given in a projected coordinate system (in metres): curves are sampled differently there by coarsen_boundaries and field.Distance (e.g. a Distance field at 2 km sampling in UTM: 618 points instead of 622 to 627, every new one an old one; distances change by at most 0.8 km, at 1 % of points); meshes made with smoothness > 0 are unaffected
 * convert_to_gis and convert_to_ugrid_mesh_file work again
 * license statements made consistent (LICENSE.txt): seamsh's own files are LGPL v3 or later as before, the files from gmsh in seamshlib are GPL, so seamsh as a whole is distributed under the GPL v3 or later; the text of the LGPL and Gmsh's license (as of Gmsh 4.8.4) are included; files added in 0.5.0 are GPL v3 or later; the license is declared as an SPDX expression (pyproject.toml, setuptools >= 77)
 * the source package holds the C headers (it could not be compiled) and no longer a library built in the source tree; it also holds the tests and examples (MANIFEST.in)

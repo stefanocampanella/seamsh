@@ -206,6 +206,60 @@ def test_mesh_size_must_be_positive(model):
             seamsh.gmsh.mesh(square_with_island(), uniform(bad), smoothness=0)
 
 
+@pytest.mark.parametrize("smoothness", [0.3, 0.0])
+def test_mesh_size_must_be_positive_in_the_whole_bounding_box(model, smoothness):
+    """With smoothness > 0 the size is also evaluated outside the domain, on the background grid
+    that covers its bounding box. A size of zero, NaN or negative there (e.g. from bathymetry,
+    which has no value on land) made the refinement of that grid loop forever; it is an error that
+    names a point. With smoothness 0 the size is only asked on the nodes of the mesh, inside the
+    domain, and such a size outside it does no harm."""
+    srs = utm()
+    triangle = Domain(srs)
+    triangle.add_boundary_curve(
+        np.array([[0, 0], [100e3, 0], [0, 100e3], [0, 0]], float), "coast", srs
+    )
+    for bad in (0.0, np.nan, -1.0):
+
+        def size(x, projection, bad=bad):
+            s = np.full(len(x), 5e3)
+            s[(x[:, 0] > 95e3) & (x[:, 1] > 95e3)] = bad  # a corner of the box, not of the domain
+            return s
+
+        gmsh.clear()
+        gmsh.model.add("test")
+        if smoothness > 0:
+            with pytest.raises(ValueError, match="positive numbers: .* at"):
+                seamsh.gmsh.mesh(triangle, size, smoothness=smoothness)
+        else:
+            seamsh.gmsh.mesh(triangle, size, smoothness=smoothness)
+            assert len(current_mesh()["triangles"]) > 100
+
+
+def test_a_domain_can_be_meshed_twice(model):
+    """Meshing cuts boundary curves where loops touch; meshing the same domain again (e.g. at
+    another resolution) starts from the curves as given. It used to start from the pieces, four of
+    whose ends meet where two islands touch: an "Invalid topology" error on the second call."""
+    srs = utm()
+    domain = Domain(srs)
+    domain.add_boundary_curve(rectangle(0, 0, 100e3, 100e3, 5e3), "coast", srs)
+    # Two islands whose outlines start elsewhere and touch at (50 km, 50 km).
+    corners = [[60e3, 50e3], [60e3, 60e3], [50e3, 60e3], [50e3, 50e3], [60e3, 50e3]]
+    domain.add_boundary_curve(np.array(corners), "a", srs)
+    domain.add_boundary_curve(100e3 - np.array(corners), "b", srs)
+    counts = []
+    for size in (10e3, 5e3, 10e3):
+        gmsh.model.add(f"size {size}")
+        seamsh.gmsh.mesh(domain, uniform(size))
+        counts.append(len(current_mesh()["triangles"]))
+        gmsh.model.remove()
+    assert counts[0] == counts[2] and counts[1] > counts[0]
+    # Curves added after a first mesh are taken into account.
+    domain.add_boundary_curve(rectangle(10e3, 10e3, 20e3, 20e3, 2e3), "c", srs)
+    gmsh.model.add("with c")
+    seamsh.gmsh.mesh(domain, uniform(5e3))
+    assert "c" in current_mesh()["groups"]
+
+
 def test_convert_to_gis_and_reproject(model, tmp_path):
     """A mesh file converts to a GIS layer with one polygon per triangle, in the projection stored
     in the file, and `reproject` rewrites it in another reference system."""
@@ -416,6 +470,21 @@ def test_convert_to_ugrid(model, tmp_path):
     assert ds["longitude"].attrs["units"] == "m"
     assert ds["longitude"].attrs["standard_name"] == "projection_x_coordinate"
     np.testing.assert_allclose(ds["depth"].values, x / 1e3)
+
+
+def test_convert_to_ugrid_with_the_stored_projection(model, tmp_path):
+    """With projection=None the projection stored in the file by `mesh` is used, as in
+    `convert_to_gis` (it was an AttributeError on None); the caller's model is left current."""
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("netCDF4")
+    seamsh.gmsh.mesh(square_with_island(), uniform(20e3))
+    gmsh.write(str(tmp_path / "mesh.msh"))
+    models = gmsh.model.list()
+    seamsh.gmsh.convert_to_ugrid_mesh_file(
+        str(tmp_path / "mesh.msh"), {}, None, str(tmp_path / "m.nc")
+    )
+    assert xr.open_dataset(tmp_path / "m.nc")["longitude"].attrs["units"] == "m"
+    assert gmsh.model.list() == models or len(gmsh.model.list()) == len(models) + 1
 
 
 def test_quad_mesh(model):

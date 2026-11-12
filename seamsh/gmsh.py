@@ -75,6 +75,23 @@ def _check_sizes(size):
     return size
 
 
+def _check_grid_sizes(size, x):
+    """Like `_check_sizes`, for the sizes at points `x` of the domain's bounding box, where they
+    are given to gmsh (`_mesh_bgrid`, `_mesh_successive`): names a point where the size is wrong.
+    The box is larger than the domain: a size computed from data that has no value there (e.g.
+    bathymetry on land) must still be positive."""
+    size = np.asarray(size, float)
+    bad = np.flatnonzero(~(size > 0))
+    if len(bad):
+        i = bad[0]
+        raise ValueError(
+            f"The mesh size callback must return positive numbers: {size[i]} at "
+            f"{tuple(np.asarray(x)[i, :2].tolist())} ({len(bad)} points of the bounding box of the "
+            "domain; the size is also asked outside the domain, where it must be positive too)"
+        )
+    return size
+
+
 def _curve_sample_gmsh_tag(tag: int, lc, projection: osr.SpatialReference) -> tuple:
     """Samples gmsh curve `tag` so that consecutive points are no farther apart than the size.
 
@@ -204,26 +221,36 @@ def _create_gmsh_geometry(domain: _geometry.Domain) -> list:
         gmsh.model.geo.addPlaneSurface([loop_tags[i] for i in region]) for region in domain._regions
     ]
 
-    def region_of(x, what):
-        region = domain._region_of(x)
-        if region is None:
-            logger.warning("%s is outside the domain: embedded in its first region", what)
-            region = 0
-        return region
+    # The region of each interior curve (of the middle of the curve: its ends may be on the
+    # boundary) and forced point, all found at once. With one region there is nothing to find.
+    def middle(curve):
+        i = len(curve.pointsid) // 2
+        return domain._points[curve.pointsid[i - 1 : i + 1]].mean(axis=0)
+
+    where = [middle(c) for c in domain._interior_curves]
+    where += [domain._points[p.pointid] for p in domain._interior_points]
+    regions = np.zeros(len(where), int)
+    if len(surfaces) > 1 and where:
+        regions = domain._regions_of(np.array(where))
+        outside = regions < 0
+        if outside.any():
+            logger.warning(
+                "%d interior curves or points are outside the domain: embedded in its first region",
+                int(outside.sum()),
+            )
+            regions[outside] = 0
+    curve_regions = regions[: len(domain._interior_curves)]
+    point_regions = regions[len(domain._interior_curves) :]
 
     embedded_curves = [[] for _ in surfaces]
-    for curve in domain._interior_curves:
+    for curve, region in zip(domain._interior_curves, curve_regions):
         tags = _gmsh_curve_geo(curve.curve_type, curve.pointsid)
         curve_groups.setdefault(curve.tag, []).extend(tags)
-        # The region of the middle of the curve (its ends may be on the boundary).
-        middle = len(curve.pointsid) // 2
-        x = domain._points[curve.pointsid[middle - 1 : middle + 1]].mean(axis=0)
-        embedded_curves[region_of(x, f"An interior curve tagged '{curve.tag}'")].extend(tags)
+        embedded_curves[region].extend(tags)
     point_groups = {}  # physical tag -> gmsh points
     embedded_points = [[] for _ in surfaces]
-    for point in domain._interior_points:
+    for point, region in zip(domain._interior_points, point_regions):
         point_groups.setdefault(point.tag, []).append(point.pointid + 1)
-        region = region_of(domain._points[point.pointid], f"A point tagged '{point.tag}'")
         embedded_points[region].append(point.pointid + 1)
     gmsh.model.geo.synchronize()
     for surface, curves, points in zip(surfaces, embedded_curves, embedded_points):
@@ -317,7 +344,7 @@ def _mesh_bgrid(
     y = np.arange(x0[1], x1[1] + d, d)
     xx, yy = np.meshgrid(x, y)
     xy = np.stack((xx.T, yy.T), axis=2).reshape(-1, 2)
-    v = mesh_size(xy, domain._projection)
+    v = _check_grid_sizes(mesh_size(xy, domain._projection), xy)
     poly = _tools.PolyMesh(x0, x1)
     poly.add_points(xy)
     while True:
@@ -352,7 +379,7 @@ def _mesh_bgrid(
             break
         newp = (xy[edges[tocut, 0]] + xy[edges[tocut, 1]]) / 2
         xy = np.r_[xy, newp]
-        v = np.r_[v, mesh_size(newp, domain._projection)]
+        v = np.r_[v, _check_grid_sizes(mesh_size(newp, domain._projection), newp)]
         poly.add_points(newp)
     # A gmsh view of scalar triangles ("ST": 9 coordinates and 3 values each), used as size field.
     xtri = xyz[tri]
@@ -423,7 +450,7 @@ def _mesh_successive(
         node_x = node_x.reshape([-1, 3])
         nodes_map = {tag: i for i, tag in enumerate(node_tags)}
         sf_view = gmsh.view.add("mesh size field")
-        node_lc = mesh_size(node_x, domain._projection)
+        node_lc = _check_grid_sizes(mesh_size(node_x, domain._projection), node_x)
         etypes, _, enodes = gmsh.model.mesh.getElements(2, -1)
         for etype, enode in zip(etypes, enodes):
             nn = 3 if etype == 2 else 4
@@ -728,20 +755,33 @@ def convert_to_ugrid_mesh_file(
             a .msh file)
         dico_var : a dictionary of variable name with all required information
         projection: the coordinate system of the mesh; it is passed to the callables of
-            dico_var and tells the units of the coordinates
+            dico_var and tells the units of the coordinates. If None, the projection stored in
+            the mesh file (model attribute "Projection", written by `mesh`) is used.
         output_filename : netcdf ugrid mesh file (.nc)
+    Raises:
+        ValueError: if projection is None and the file holds no projection.
     """
     if not xarray_available:
         raise ValueError("The xarray python library is required to write ugrid files.")
 
     logger.info('Convert "%s" into "%s"', input_filename, output_filename)
     gmsh.model.add(str(uuid.uuid4()))
-    gmsh.open(input_filename)
+    try:
+        gmsh.open(input_filename)
+        title = gmsh.model.getCurrent()
+        _, tri_n = gmsh.model.mesh.getElementsByType(2)
+        tri_n = tri_n.reshape([-1, 3])
+        node_tags, nodes, _ = gmsh.model.mesh.getNodes()
+        if projection is None:
+            stored = gmsh.model.get_attribute("Projection")
+            if len(stored) == 2 and stored[0] == "WKT":
+                projection = osr.SpatialReference()
+                projection.ImportFromWkt(stored[1])
+    finally:
+        gmsh.model.remove()
+    if projection is None:
+        raise ValueError(f"No projection given, and none stored in '{input_filename}'")
 
-    _, tri_n = gmsh.model.mesh.getElementsByType(2)
-    tri_n = tri_n.reshape([-1, 3])
-
-    node_tags, nodes, _ = gmsh.model.mesh.getNodes()
     nodes = nodes.reshape([-1, 3])
     x = nodes[:, 0]
     y = nodes[:, 1]
@@ -799,7 +839,7 @@ def convert_to_ugrid_mesh_file(
 
     encoding = {v: {"zlib": True, "complevel": 4} for v in dico_var}
     ds.attrs = {
-        "title": gmsh.model.getCurrent(),
+        "title": title,
         "institution": "Institution Name",
         "source": "UCL(SEAMSH) & BRGM",
         "references": "REF",
@@ -807,8 +847,6 @@ def convert_to_ugrid_mesh_file(
     }
 
     ds.to_netcdf(path=output_filename, format="NETCDF4", encoding=encoding)
-
-    gmsh.model.remove()
 
 
 def merge_meshes(filename_orig: str, filename_dest: str, filename_out: str, seamlines: dict):

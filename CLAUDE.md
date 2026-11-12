@@ -72,7 +72,8 @@ Python package `seamsh/` plus a small C library `seamshlib/` compiled into `seam
 Things that need several files to see:
 
 - **Size callbacks** are the central contract: `f(x[n, 2], projection) -> [n]`, positive, called with points in the
-  domain's projection. `field.Distance`/`Raster`/`Inpoly` are such callables; users compose them in plain Python.
+  domain's projection, including points of its bounding box outside the domain (background grid of `_mesh_bgrid`).
+  A `Domain` can be meshed several times: `_build_topology` starts again from the curves as given. `field.Distance`/`Raster`/`Inpoly` are such callables; users compose them in plain Python.
 - **gmsh global state.** seamsh never calls `gmsh.initialize()`; the caller does. `mesh()` works on the *current*
   gmsh model and does not write a file (the caller calls `gmsh.write`). Curve sampling (`gmsh._curve_sample`, used by
   `coarsen_boundaries` and `field.Distance`) builds each curve in a temporary gmsh model and restores the caller's.

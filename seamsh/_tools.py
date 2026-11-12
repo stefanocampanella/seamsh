@@ -35,6 +35,12 @@ logger = logging.getLogger(__name__)
 # of the two projections (not by the objects: equal projections built twice share one entry).
 _transform_cache = {}
 _TRANSFORM_CACHE_SIZE = 64
+# Exporting the definitions (WKT) costs as much as transforming a few points, and the same pair of
+# objects is used over and over (curve sampling): the transformation of a pair of objects is also
+# kept by the identity of the objects, checked against their axis order, the one setting that is
+# commonly changed on an object in use. An object whose definition is replaced (ImportFrom...)
+# after use must not be reused: make a new one.
+_pair_cache = {}
 
 _show_progress = True
 
@@ -60,7 +66,23 @@ def project_points(x, pfrom: osr.SpatialReference, pto: osr.SpatialReference) ->
     """Points `x` [n, >= axes of pfrom], given in projection `pfrom`, in projection `pto`
     [n, axes of pto]. When both projections are the same, only the extra columns are dropped."""
     x = np.asarray(x)[:, : pfrom.GetAxesCount()]
-    if not pfrom.IsSame(pto):
+    trans = _transformation(pfrom, pto)
+    if trans is not None:
+        x = trans.TransformPoints(x)
+        x = np.asarray(x)[:, : pto.GetAxesCount()]
+    return x
+
+
+def _transformation(pfrom: osr.SpatialReference, pto: osr.SpatialReference):
+    """The transformation from `pfrom` to `pto`, or None if they are the same projection."""
+    axes = (tuple(pfrom.GetDataAxisToSRSAxisMapping()), tuple(pto.GetDataAxisToSRSAxisMapping()))
+    hit = _pair_cache.get((id(pfrom), id(pto)))
+    # The objects are kept in the entry, so their ids cannot be reused while it exists.
+    if hit is not None and hit[0] is pfrom and hit[1] is pto and hit[2] == axes:
+        return hit[3]
+    if pfrom.IsSame(pto):
+        trans = None
+    else:
         key = (_projection_key(pfrom), _projection_key(pto))
         trans = _transform_cache.get(key)
         if trans is None:
@@ -68,9 +90,10 @@ def project_points(x, pfrom: osr.SpatialReference, pto: osr.SpatialReference) ->
                 _transform_cache.clear()
             trans = osr.CoordinateTransformation(pfrom, pto)
             _transform_cache[key] = trans
-        x = trans.TransformPoints(x)
-        x = np.asarray(x)[:, : pto.GetAxesCount()]
-    return x
+    if len(_pair_cache) >= _TRANSFORM_CACHE_SIZE:
+        _pair_cache.clear()
+    _pair_cache[(id(pfrom), id(pto))] = (pfrom, pto, axes, trans)
+    return trans
 
 
 lib = ctypes.CDLL(os.path.join(os.path.dirname(os.path.realpath(__file__)), "libseamsh.so"))
@@ -84,6 +107,8 @@ lib.polymesh_add_points.argtypes = [
     ctypes.c_void_p,
     ctypes.c_void_p,
 ]
+lib.polymesh_delete.restype = None
+lib.polymesh_delete.argtypes = [ctypes.c_void_p]
 lib.polymesh_n_faces.restype = ctypes.c_int
 lib.polymesh_n_faces.argtypes = [ctypes.c_void_p]
 lib.polymesh_faces.restype = None
@@ -203,3 +228,9 @@ class PolyMesh:
         tri = np.empty((n, 3), np.int32)
         lib.polymesh_faces(self._ptr, np2c(tri, np.int32))
         return tri
+
+    def __del__(self):
+        # The triangulation is allocated by the C library: give it back.
+        ptr, self._ptr = getattr(self, "_ptr", None), None
+        if ptr is not None and ptr.value is not None:
+            lib.polymesh_delete(ptr)

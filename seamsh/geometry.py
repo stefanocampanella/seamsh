@@ -200,19 +200,36 @@ def _chain_into_loops(curves: list, points: np.ndarray) -> list:
 def _points_in_polygon(points: np.ndarray, polygon: np.ndarray) -> np.ndarray:
     """Whether each point [n, 2] is inside the closed polyline `polygon` [m, 2] (even-odd rule: a
     half-line from the point crosses the polygon an odd number of times)."""
-    a, b = polygon[:-1], polygon[1:]
+    points = np.asarray(points, float)
     inside = np.zeros(len(points), bool)
-    for start in range(0, len(points), 256):  # by chunks, to bound the memory
-        px = points[start : start + 256, 0, None]
-        py = points[start : start + 256, 1, None]
-        straddles = (a[None, :, 1] > py) != (b[None, :, 1] > py)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            x_cross = a[None, :, 0] + (py - a[None, :, 1]) * (b[None, :, 0] - a[None, :, 0]) / (
-                b[None, :, 1] - a[None, :, 1]
-            )
-        crossings = np.count_nonzero(straddles & (px < x_cross), axis=1)
-        inside[start : start + 256] = crossings % 2 == 1
+    # Only the points in the bounding box of the polygon can be inside.
+    lower, upper = polygon.min(axis=0), polygon.max(axis=0)
+    candidates = np.flatnonzero(((points >= lower) & (points <= upper)).all(axis=1))
+    if len(candidates) == 0:
+        return inside
+    a, b = polygon[:-1], polygon[1:]
+    # By blocks of points x segments, so that the temporaries hold at most _BLOCK values whatever
+    # the size of the polygon.
+    n_points = max(1, min(len(candidates), _BLOCK // max(1, len(a))))
+    n_segments = max(1, _BLOCK // n_points)
+    for start in range(0, len(candidates), n_points):
+        chunk = candidates[start : start + n_points]
+        px, py = points[chunk, 0, None], points[chunk, 1, None]
+        crossings = np.zeros(len(chunk), np.int64)
+        for first in range(0, len(a), n_segments):
+            sa, sb = a[first : first + n_segments], b[first : first + n_segments]
+            straddles = (sa[None, :, 1] > py) != (sb[None, :, 1] > py)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                x_cross = sa[None, :, 0] + (py - sa[None, :, 1]) * (
+                    sb[None, :, 0] - sa[None, :, 0]
+                ) / (sb[None, :, 1] - sa[None, :, 1])
+            crossings += np.count_nonzero(straddles & (px < x_cross), axis=1)
+        inside[chunk] = crossings % 2 == 1
     return inside
+
+
+# Number of values (points x segments) of the temporaries of _points_in_polygon: 8 MB each.
+_BLOCK = 2**20
 
 
 def _nest_loops(polygons: list) -> tuple:
@@ -273,6 +290,9 @@ class Domain:
         self._interior_curves = []
         self._interior_points = []
         self._curves = []
+        # Set by _build_topology: (boundary pieces, interior pieces, boundary curves as given,
+        # interior curves as given), so that the topology is rebuilt from the curves as given.
+        self._topology_inputs = None
 
     def _build_topology(self) -> None:
         """Works out how the curves are connected, for the mesher.
@@ -285,6 +305,18 @@ class Domain:
         indices in `_curveloops` (the outer boundary, then the holes: see `_nest_loops`).
         """
         logger.info("Build topology")
+        # Start again from the curves as given (and those added since), not from the pieces of a
+        # previous build: two loops that touch at a point inside their curves are cut there, and
+        # four piece ends would then meet at that point.
+        if self._topology_inputs is not None:
+            pieces, interior_pieces, curves, interior_curves = self._topology_inputs
+            built = {id(c) for c in chain(pieces, interior_pieces)}
+            self._curves = curves + [c for c in self._curves if id(c) not in built]
+            self._interior_curves = interior_curves + [
+                c for c in self._interior_curves if id(c) not in built
+            ]
+        curves_as_given = list(self._curves)
+        interior_curves_as_given = list(self._interior_curves)
         all_curves = list(chain(self._curves, self._interior_curves))
         all_points = np.vstack(
             [_tools.project_points(c.points, c.projection, self._projection) for c in all_curves]
@@ -308,6 +340,12 @@ class Domain:
         self._curveloops = _chain_into_loops(self._curves, self._points)
         self._curves = _split_curves(self._curves, is_break, self._curveloops)
         self._interior_curves = _split_curves(self._interior_curves, is_break)
+        self._topology_inputs = (
+            list(self._curves),
+            list(self._interior_curves),
+            curves_as_given,
+            interior_curves_as_given,
+        )
         bbox_area = np.zeros([len(self._curveloops)])
         for i, loop in enumerate(self._curveloops):
             loop_points = np.vstack([self._curves[j].points for j, _ in loop])
@@ -328,16 +366,38 @@ class Domain:
     def _region_of(self, point) -> int:
         """The index in `_regions` of the region that holds `point` (in the projection of the
         domain), or None if the point is outside the domain. Needs `_build_topology`."""
-        point = np.asarray(point, float)[None, :2]
-        containers = [
-            i
-            for i, polygon in enumerate(self._loop_polygons)
-            if _points_in_polygon(point, polygon)[0]
-        ]
-        if len(containers) % 2 == 0:
-            return None
-        outer = max(containers, key=lambda c: len(self._loop_containers[c]))
-        return [region[0] for region in self._regions].index(outer)
+        region = self._regions_of(np.asarray(point, float)[None, :2])[0]
+        return None if region < 0 else int(region)
+
+    def _regions_of(self, points: np.ndarray) -> np.ndarray:
+        """For each point [n, 2] (in the projection of the domain), the index in `_regions` of the
+        region that holds it, or -1 if it is outside the domain. Needs `_build_topology`."""
+        points = np.asarray(points, float).reshape(-1, 2)
+        n_loops = len(self._loop_polygons)
+        # Depth of each loop: the number of loops that contain it. The loop that holds a point
+        # most closely is the deepest of the loops that contain the point.
+        depth = np.array([len(c) for c in self._loop_containers])
+        head_of = {region[0]: i for i, region in enumerate(self._regions)}
+        n_inside = np.zeros(len(points), int)
+        deepest = np.full(len(points), -1)
+        for loop in range(n_loops):
+            inside = _points_in_polygon(points, self._loop_polygons[loop])
+            n_inside += inside
+            deeper = inside & ((deepest < 0) | (depth[loop] > depth[np.maximum(deepest, 0)]))
+            deepest[deeper] = loop
+        regions = np.full(len(points), -1)
+        for i in np.flatnonzero(n_inside % 2 == 1):
+            region = head_of.get(int(deepest[i]))
+            if region is None:
+                # The exact test disagrees with the nesting of the loops (loops that touch, or a
+                # spline loop sampled at a few points by _nest_loops): treat as outside.
+                logger.warning(
+                    "Cannot tell which region holds %s: the loops around it are ambiguous",
+                    tuple(points[i]),
+                )
+            else:
+                regions[i] = region
+        return regions
 
     def _add_geometry(self, geometry, tag, projection, curve_type, interior, onlypoints=False):
         if geometry.GetGeometryCount() != 0:

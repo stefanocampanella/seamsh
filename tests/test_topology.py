@@ -184,3 +184,61 @@ def test_transformations_are_cached_by_definition():
         target.ImportFromEPSG(32600 + zone)
         _tools.project_points(x, lonlat[0], target)
     assert len(_tools._transform_cache) <= _tools._TRANSFORM_CACHE_SIZE
+
+
+def test_transformations_of_the_same_objects_skip_the_definitions(monkeypatch):
+    """Exporting the two definitions (WKT) took about half of each call, and a quarter of a
+    coarsening: the transformation of a pair of objects is found by their identity, and only their
+    axis order is checked."""
+    from osgeo import osr
+
+    from seamsh import _tools
+
+    lonlat = osr.SpatialReference()
+    lonlat.ImportFromEPSG(4326)
+    lonlat.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+    target = utm()
+    x = np.array([[3.0, 45.0]])
+    first = _tools.project_points(x, lonlat, target)
+    calls = []
+    real = _tools._projection_key
+    monkeypatch.setattr(_tools, "_projection_key", lambda p: calls.append(p) or real(p))
+    for _ in range(10):
+        np.testing.assert_array_equal(_tools.project_points(x, lonlat, target), first)
+    assert calls == []
+    lonlat.SetAxisMappingStrategy(osr.OAMS_AUTHORITY_COMPLIANT)
+    np.testing.assert_allclose(_tools.project_points(x[:, ::-1], lonlat, target), first)
+    assert len(calls) == 2
+
+
+def test_points_in_polygon_by_blocks(monkeypatch):
+    """The test is done by blocks of points x segments, so that its memory does not grow with the
+    size of the polygon (300 points against a loop of a million vertices took 4 GB): the result
+    does not depend on the blocks."""
+    from seamsh import geometry
+
+    t = np.linspace(0, 2 * np.pi, 2001)
+    star = np.c_[np.cos(t), np.sin(t)] * (1 + 0.3 * np.sin(7 * t))[:, None]
+    points = np.random.default_rng(0).random((500, 2)) * 3 - 1.5
+    whole = geometry._points_in_polygon(points, star)
+    for block in (1, 7, 1000):
+        monkeypatch.setattr(geometry, "_BLOCK", block)
+        np.testing.assert_array_equal(geometry._points_in_polygon(points, star), whole)
+    r = np.hypot(*points.T)
+    assert whole[r < 0.69].all() and not whole[r > 1.31].any()
+
+
+def test_regions_of_many_points():
+    """The regions of many points are found at once, as for one point at a time."""
+    srs = utm()
+    domain = Domain(srs)
+    domain.add_boundary_curve(rectangle(0, 0, 100e3, 100e3, 5e3), "sea", srs)
+    domain.add_boundary_curve(rectangle(20e3, 20e3, 80e3, 80e3, 5e3), "island", srs)
+    domain.add_boundary_curve(rectangle(35e3, 35e3, 65e3, 65e3, 5e3), "lake", srs)
+    domain.add_boundary_curve(rectangle(120e3, 0, 160e3, 40e3, 5e3), "pond", srs)
+    domain._build_topology()
+    points = np.random.default_rng(1).random((400, 2)) * [170e3, 110e3] - 5e3
+    regions = domain._regions_of(points)
+    one_by_one = [domain._region_of(p) for p in points]
+    assert [None if r < 0 else r for r in regions] == one_by_one
+    assert set(regions) == {-1, 0, 1, 2}
