@@ -6,6 +6,30 @@ which branched from upstream's 0.4.18 (https://git.immc.ucl.ac.be/jlambrechts/se
 own releases since then (0.4.19 and later, on PyPI) are not listed here: they are different code,
 and upstream's 0.5 is not this 0.5.0+fork.
 
+seamsh 0.5.1+fork
+-----------------
+* fixes from upstream's releases since 0.4.18 that still applied here:
+
+  * **meshes change where tags overlap**: in coarsen_boundaries, a curve shorter than the size between two longer
+    ones (e.g. a river mouth) keeps its tag; it took the tag of the long curves and was lost (upstream's f28aa56).
+    The 1:10m coastline mesh of moby-dick (one tag) is unchanged; the 1:110m coastline at 300 km, where one feature
+    is tagged "Country", gives 5,512 nodes and 10,283 triangles instead of 5,532 and 10,323
+  * a projection stored in a mesh file on several lines (e.g. a pretty-printed WKT) is read by reproject,
+    convert_to_gis and convert_to_ugrid_mesh_file; only its first line was (c873f34)
+  * reproject keeps the node numbers when it writes MSH 2 (with gmsh 4.13 or later; ce6ec1a, 6442e2e), and says
+    when no projection is given or stored
+  * features of a shapefile whose tag field is unset or empty are meshed in no physical group; mesh() failed
+    (5b45b37)
+  * the curves outside the mesh are found with a table of nodes instead of a Python set (8db84ce, adddf85)
+
+* Python 3.10 or later (3.9 is past its end of life)
+* a missing C library is an ImportError that says how to build it
+* the binding of the C library uses numpy's ndpointer and frees the triangulations with weakref.finalize;
+  seamsh/_tools.py is split into _libseamsh.py, _projection.py and _progress.py (internal modules)
+* tooling as in moby-dick: code formatted with ruff (2-space indentation, 120 columns), checked with ty, the
+  copyright and license of every file stated for REUSE (REUSE.toml, LICENSES/), development tools in the ``dev``
+  dependency group (``pip install --group dev``), and a CI with lint, REUSE and test jobs, with coverage (80 % gate)
+
 seamsh 0.5.0+fork
 -----------------
 * the version carries the local label ``+fork``, the project's links (README, package metadata,

@@ -29,7 +29,7 @@ from setuptools.command.build_ext import build_ext as _build_ext
 # Keep in step with CHANGELOG.rst (doc/conf.py reads it from here). The local label "+fork" tells
 # this fork's versions from upstream's releases on PyPI, which have the same numbers but other code
 # (upstream's 0.5 is not this 0.5.0).
-version = "0.5.0+fork"
+version = "0.5.1+fork"
 
 # Not a Python extension module: a plain shared library, loaded with ctypes in seamsh/_libseamsh.py.
 lib = Extension(
