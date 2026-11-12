@@ -375,15 +375,55 @@ static int has_tag(const int *tag, int v, int t) {
   return 0;
 }
 
-/* The tag of the boundary segment from v0 to v1: the current tag if both points have it, else a
- * tag that both have, else the current tag if one of them has it, else the first tag of v0. */
-static int get_segment_tag(const int *tag, int v0, int v1, int current_tag) {
-  if (has_tag(tag, v0, current_tag) && has_tag(tag, v1, current_tag))
-    return current_tag;
+/* The number of points of each tag (weight[t] for tag t, from 0 to *max_tag), counted on the
+ * sampled points before the collapses merge their lists: a measure of the length of the curves of
+ * the tag. */
+static int *count_tag_points(int n_points, const int *tag, int *max_tag) {
+  *max_tag = 0;
+  for (int v = 0; v < n_points; ++v)
+    for (int i = v; i != -1; i = tag[i * 2 + 1])
+      if (tag[i * 2] > *max_tag)
+        *max_tag = tag[i * 2];
+  int *weight = owned_malloc(sizeof(int) * (*max_tag + 1));
+  for (int t = 0; t <= *max_tag; ++t)
+    weight[t] = 0;
+  for (int v = 0; v < n_points; ++v)
+    for (int i = v; i != -1; i = tag[i * 2 + 1])
+      if (tag[i * 2] >= 0)
+        weight[tag[i * 2]]++;
+  return weight;
+}
+
+/* The tag of the boundary segment from v0 to v1. Among the tags that both points have, the one with
+ * the fewest points (weight, see count_tag_points): a curve shorter than the size between two
+ * longer ones (e.g. a river mouth) becomes one segment whose ends also have the tag of the long
+ * curves, and keeps its own tag. Ties go to the current tag, then to the lowest tag, so that a
+ * boundary with one tag, or two long curves that overlap, do not change tag back and forth. With no
+ * common tag: the current tag if one of the points has it, else the first tag of v0. (Upstream's
+ * f28aa56; the current tag, then the first common tag, used to win, and the short curve was lost.)
+ */
+static int get_segment_tag(const int *tag, const int *weight, int v0, int v1, int current_tag) {
+  int best = -1;
   for (int i = v0; i != -1; i = tag[i * 2 + 1]) {
-    if (has_tag(tag, v1, tag[i * 2]))
-      return tag[i * 2];
+    int t = tag[i * 2];
+    if (t < 0 || !has_tag(tag, v1, t))
+      continue;
+    int take;
+    if (best == -1)
+      take = 1;
+    else if (weight[t] != weight[best])
+      take = weight[t] < weight[best];
+    else if (t == current_tag)
+      take = 1;
+    else if (best == current_tag)
+      take = 0;
+    else
+      take = t < best;
+    if (take)
+      best = t;
   }
+  if (best != -1)
+    return best;
   if (has_tag(tag, v0, current_tag) || has_tag(tag, v1, current_tag))
     return current_tag;
   return tag[v0 * 2];
@@ -503,9 +543,9 @@ static int *build_neighbours(int n_tri, const int *tri) {
  * each starting on the last point of the one before, and the last one ends on the first point of
  * the loop.
  */
-static void extract_boundaries(const double *x, const double *size, const int *tag, int n_tri,
-                               const int *tri, const int *tri_color, double **points, int *n_points,
-                               int **lines, int *n_lines) {
+static void extract_boundaries(const double *x, const double *size, const int *tag,
+                               const int *weight, int n_tri, const int *tri, const int *tri_color,
+                               double **points, int *n_points, int **lines, int *n_lines) {
   /* Keep the colored triangles only: their edges without a neighbour are the boundary. */
   int n_kept = 0;
   int *kept = owned_malloc(sizeof(int) * n_tri * 3);
@@ -566,21 +606,21 @@ static void extract_boundaries(const double *x, const double *size, const int *t
       ;
     /* Start the loop where the tag changes (if it does), so that no curve spans the start. */
     int start = 0;
-    int current_tag = get_segment_tag(tag, loop[0], loop[1], -1);
+    int current_tag = get_segment_tag(tag, weight, loop[0], loop[1], -1);
     for (int j = 1; j < length; ++j) {
-      int next_tag = get_segment_tag(tag, loop[j], loop[(j + 1) % length], current_tag);
+      int next_tag = get_segment_tag(tag, weight, loop[j], loop[(j + 1) % length], current_tag);
       if (current_tag != next_tag) {
         start = j;
         break;
       }
     }
     int first_point = *n_points;
-    current_tag = get_segment_tag(tag, loop[start], loop[(start + 1) % length], -1);
+    current_tag = get_segment_tag(tag, weight, loop[start], loop[(start + 1) % length], -1);
     int_vector_append(lines, n_lines, current_tag);
     for (int j = 0; j < length; ++j) {
       int p = loop[(start + j) % length];
       int p_next = loop[(start + j + 1) % length];
-      int segment_tag = get_segment_tag(tag, p, p_next, current_tag);
+      int segment_tag = get_segment_tag(tag, weight, p, p_next, current_tag);
       coord_vector_append(points, n_points, x + p * 2);
       double_vector_append(&point_size, &n_point_size, size[p]);
       int_vector_append(lines, n_lines, (*n_points) - 1);
@@ -827,9 +867,12 @@ int gen_boundaries_from_points(int n_points, double *x, int *tag, int n_tri, int
   int *neigh = build_neighbours(n_tri, tri);
   orient_triangles(x, n_tri, tri, neigh);
   int *tri_color = color_triangles(x, n_tri, tri, neigh, n_seeds, seeds, mesh_size);
+  int max_tag;
+  int *weight = count_tag_points(n_points, tag, &max_tag);
   *converged = optimize_mesh(x, mesh_size, n_points, n_tri, tri, tri_color, neigh, tag);
-  extract_boundaries(x, mesh_size, tag, n_tri, tri, tri_color, points, n_out_points, lines,
+  extract_boundaries(x, mesh_size, tag, weight, n_tri, tri, tri_color, points, n_out_points, lines,
                      n_lines);
+  owned_free(weight);
   owned_free(tri_color);
   owned_free(neigh);
   owned_release(*points);

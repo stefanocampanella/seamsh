@@ -179,3 +179,21 @@ def test_the_seed_outside_is_named(model):
   seeds = [(20e3, 20e3), (-50e3, 20e3)]
   with pytest.raises(ValueError, match=r"\(-50000\.0, 20000\.0\).*outside"):
     coarsen_boundaries(two_basins(), seeds, utm(), uniform(5e3))
+
+
+def test_a_short_curve_keeps_its_tag(model):
+  """A curve shorter than the size between two longer ones (e.g. a river mouth) becomes one boundary segment whose
+  ends are also on the long curves: the segment takes the tag carried by fewer points, the short curve's. It took
+  the long curve's tag, and the short curve was lost (upstream's f28aa56)."""
+  domain = Domain(utm())
+  domain.add_boundary_curve(np.array([[0, 0], [49e3, 0]]), "coast", utm())
+  domain.add_boundary_curve(np.array([[49e3, 0], [51e3, 0]]), "mouth", utm())
+  domain.add_boundary_curve(np.array([[51e3, 0], [100e3, 0]]), "coast", utm())
+  domain.add_boundary_curve(np.array([[100e3, 0], [100e3, 100e3], [0, 100e3], [0, 0]]), "open", utm())
+  coarse = coarsen_boundaries(domain, (50e3, 50e3), utm(), uniform(10e3))
+  assert sorted({c.tag for c in coarse._curves}) == ["coast", "mouth", "open"]
+  (mouth,) = [c for c in coarse._curves if c.tag == "mouth"]
+  # One segment of about the size, over the mouth.
+  assert len(mouth.points) == 2
+  assert mouth.points[:, 0].min() < 49e3 and mouth.points[:, 0].max() > 50e3
+  assert np.ptp(mouth.points[:, 0]) < 1.5 * 10e3

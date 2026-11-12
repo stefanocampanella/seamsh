@@ -5,8 +5,11 @@
 stereographic plane centred on the North Pole, as moby-dick uses seamsh.
 
 Reference numbers, measured with gmsh 4.12.1: coarsening at 100 km from a seed at the North Pole,
-then a 300 km mesh, gives 5,532 nodes in 10,323 triangles and 783 boundary edges (5,512, 10,284 and
-782 before version 0.5.0+fork, which moves the coarsened boundary points along other normals).
+then a 300 km mesh, gives 5,512 nodes in 10,283 triangles and 783 boundary edges. Before:
+- 5,532, 10,323 and 783 until the boundary segments took the tag carried by the fewest points (upstream's f28aa56):
+  the one feature tagged "Country" (a closed loop in the Canadian Arctic, from 73.6 N, 106.6 W) lost its tag; it keeps
+  it on part of the coarsened boundary, one more curve, whose ends move the nodes around it;
+- 5,512, 10,284 and 782 before version 0.5.0+fork, which moves the coarsened boundary points along other normals.
 """
 
 import gmsh
@@ -75,9 +78,12 @@ def test_coarsened_ocean(coarse):
   """The coarsened domain is the ocean connected to the North Pole: closed curves tagged from the
   shapefile, with the open oceans inside, and land and the basins behind narrow straits outside."""
   curves = [c.points for c in coarse._curves]
-  assert {c.tag for c in coarse._curves} == {"Coastline"}
-  for points in curves:
-    np.testing.assert_allclose(points[0], points[-1])
+  # Both tags of the shapefile: the "Country" feature keeps its tag where it is on the coarsened boundary.
+  assert {c.tag for c in coarse._curves} == {"Coastline", "Country"}
+  # The curves make closed loops (a loop is one curve, or several where the tag changes): each end is the end of an
+  # even number of curves.
+  ends, counts = np.unique(np.round([p for c in curves for p in (c[0], c[-1])], 3), axis=0, return_counts=True)
+  assert len(ends) > 0 and (counts % 2 == 0).all()
   assert 35 <= len(curves) <= 60
   points = np.array([to_stereographic(lat, lon) for _, lat, lon, _ in PROBES])
   inside = inside_curves(points, curves)
@@ -92,10 +98,10 @@ def test_ocean_mesh(coarse, model):
   seamsh.gmsh.mesh(coarse, UniformOnEarth(300e3), output_srs=cartesian, smoothness=0.3)
   mesh = current_mesh()
   triangles = mesh["triangles"]
-  assert len(triangles) == pytest.approx(10323, rel=0.05)
-  assert len(np.unique(triangles)) == pytest.approx(5532, rel=0.05)
+  assert len(triangles) == pytest.approx(10283, rel=0.05)
+  assert len(np.unique(triangles)) == pytest.approx(5512, rel=0.05)
   assert n_components(mesh) == 1
-  assert mesh["groups"] == ["Coastline", "domain"]
+  assert mesh["groups"] == ["Coastline", "Country", "domain"]
   # Boundary edges: those of one triangle only.
   edges = np.sort(np.r_[triangles[:, [0, 1]], triangles[:, [1, 2]], triangles[:, [2, 0]]], axis=1)
   _, counts = np.unique(edges, axis=0, return_counts=True)
