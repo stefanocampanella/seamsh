@@ -1,0 +1,17 @@
+Public domain
+
+The files under this identifier are in the public domain: their authors have placed them there, and anyone may use,
+modify and distribute them for any purpose, without permission and without conditions. Two sources in seamsh:
+
+- seamshlib/robustPredicates.c: "Routines for Arbitrary Precision Floating-point Arithmetic and Fast Robust Geometric
+  Predicates" (predicates.c, May 18, 1996), "Placed in the public domain by Jonathan Richard Shewchuk, School of
+  Computer Science, Carnegie Mellon University" (header of the file; http://www.cs.cmu.edu/~quake/robust.html). The
+  modifications made in Gmsh are under Gmsh's license (GPL-2.0-or-later).
+
+- tests/data/ne_110m_coastline: Natural Earth (https://www.naturalearthdata.com/about/terms-of-use/): "All versions of
+  Natural Earth raster + vector map data found on this website are in the public domain. You may use the maps in any
+  manner, including modifying the content and design, electronic dissemination, and offset printing. The primary
+  authors, Tom Patterson and Nathaniel Vaughn Kelso, and all other contributors renounce all financial claim to the
+  maps and invites you to use them for personal, educational, and commercial purposes. No permission is needed to use
+  Natural Earth. Crediting the authors is unnecessary." The authors "are not responsible for any problems relating to
+  accuracy, content, design, and how it is used."

@@ -31,11 +31,17 @@ Changes made in this fork (https://github.com/stefanocampanella/seamsh)
 The fork branched from upstream's version 0.4.18. Its changes are by Stefano Campanella, and are
 recorded in the git history and in CHANGELOG.rst.
 
-- Changes to existing files are licensed under the same terms as the files they are in.
+- Changes to existing files are licensed under the same terms as the files they are in. Code
+  moved out of an existing file into a new one keeps the terms of that file: seamsh/_libseamsh.py,
+  seamsh/_projection.py and seamsh/_progress.py, split from upstream's seamsh/_tools.py, are under
+  the GNU Lesser General Public License, version 3 or later, with upstream's copyright.
 - Files added by the fork are licensed under the GNU General Public License, version 3 or (at your
   option) any later version (COPYING.txt), so that the project as a whole is under one license.
-  Those that can hold a comment say so in an SPDX header; the others are: .clang-format,
-  .gitignore, CLAUDE.md, COPYING.LESSER.txt (the license text itself) and the test data below.
+
+The copyright and license of every file are also given in machine-readable form, following the
+REUSE specification (https://reuse.software): SPDX headers in the files that take comments, and
+REUSE.toml for the others (and for upstream's and third-party files, whose headers are kept as
+they are); the license texts are in LICENSES/. `reuse lint` checks them.
 
 Files from other projects
 -----------------------------------------

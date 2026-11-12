@@ -1,0 +1,87 @@
+# Copyright and licensing of the files that carry no SPDX header (https://reuse.software/spec-3.3/); check everything
+# with `reuse lint`. LICENSE.txt explains the licensing in words. Upstream's and third-party files keep their own
+# headers, which are not changed: where a header states a copyright but no machine-readable license, the license it
+# states (or that LICENSE.txt gives for it) is added here, and the copyright lines of the header are kept
+# ("aggregate").
+version = 1
+
+# Upstream's source files: the header says "seamsh - Copyright (C) <2010-2020> Universite catholique de Louvain" and
+# the LGPL, version 3 or later (REUSE reads the first line of that copyright notice only, without its holder, on the
+# next line: the holder is named here). Changed by this fork since its version 0.4.18.
+[[annotations]]
+path = ["seamsh/__init__.py", "seamsh/field.py", "seamsh/geometry.py", "seamsh/gmsh.py", "seamshlib/seamsh.c", "setup.py"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = ["2010-2020 Universite catholique de Louvain (UCL), Belgium", "2026 Stefano Campanella"]
+SPDX-License-Identifier = "LGPL-3.0-or-later"
+
+# Upstream's documentation, examples, build and metadata files, which have no header (upstream's license, LGPL).
+# Changed by this fork.
+[[annotations]]
+path = [
+  "AUTHORS.txt",
+  "CHANGELOG.rst",
+  "Makefile",
+  "README.rst",
+  "doc/Makefile",
+  "doc/conf.py",
+  "doc/index.rst",
+  "doc/install.rst",
+  "doc/make.bat",
+  "doc/seamsh.field.rst",
+  "doc/seamsh.geometry.rst",
+  "doc/seamsh.gmsh.rst",
+  "doc/seamsh.rst",
+  "examples/1-simple.py",
+  "examples/2-gis.py",
+  "examples/3-coarsening.py",
+  "examples/4-advanced-gmsh.py",
+  "examples/5-area.py",
+  "examples/6-stereographics.py",
+]
+SPDX-FileCopyrightText = ["2020-2025 Universite catholique de Louvain (UCL), Belgium", "2026 Stefano Campanella"]
+SPDX-License-Identifier = "LGPL-3.0-or-later"
+
+# Configuration files added by this fork, which take no comment or are better without (GPL, as the fork's files).
+[[annotations]]
+path = [".clang-format", ".gitignore"]
+SPDX-FileCopyrightText = "2026 Stefano Campanella"
+SPDX-License-Identifier = "GPL-3.0-or-later"
+
+# From Gmsh (header: "Gmsh - Copyright (C) 1997-2021 C. Geuzaine, J.-F. Remacle", see seamshlib/LICENSE.gmsh.txt):
+# the GPL, version 2 or later. Gmsh's exception (combination with Netgen, METIS, OpenCASCADE and ParaView) is not
+# needed here and, as Gmsh's license allows for modified versions, not carried forward. polymesh.h, the interface of
+# polymesh.c, has no header: it is distributed with polymesh.c, on the same terms.
+[[annotations]]
+path = ["seamshlib/polymesh.c", "seamshlib/robustPredicates.h"]
+precedence = "aggregate"
+SPDX-License-Identifier = "GPL-2.0-or-later"
+
+[[annotations]]
+path = "seamshlib/polymesh.h"
+SPDX-FileCopyrightText = "1997-2021 C. Geuzaine, J.-F. Remacle"
+SPDX-License-Identifier = "GPL-2.0-or-later"
+
+# Shewchuk's robust predicates, placed in the public domain (header), as modified in Gmsh (Gmsh 4.8.4's
+# Numeric/robustPredicates.cpp, three lines changed): the modifications are under Gmsh's license.
+[[annotations]]
+path = "seamshlib/robustPredicates.c"
+SPDX-FileCopyrightText = ["1996 Jonathan Richard Shewchuk", "1997-2021 C. Geuzaine, J.-F. Remacle"]
+SPDX-License-Identifier = "LicenseRef-PublicDomain AND GPL-2.0-or-later"
+
+# Alexey Tourbin's qsort.h: the MIT license, whose text is in its header.
+[[annotations]]
+path = "seamshlib/qsort.h"
+precedence = "aggregate"
+SPDX-License-Identifier = "MIT"
+
+# vector.h, from MigFlow (header: UCLouvain and Universite de Montpellier, the LGPL, version 3 or later).
+[[annotations]]
+path = "seamshlib/vector.h"
+precedence = "aggregate"
+SPDX-License-Identifier = "LGPL-3.0-or-later"
+
+# Natural Earth's 1:110m coastline (version 4.1.0), in the public domain: https://www.naturalearthdata.com.
+[[annotations]]
+path = "tests/data/ne_110m_coastline/**"
+SPDX-FileCopyrightText = "Natural Earth (Tom Patterson, Nathaniel Vaughn Kelso and contributors)"
+SPDX-License-Identifier = "LicenseRef-PublicDomain"

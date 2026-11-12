@@ -19,6 +19,7 @@ license-files = [
     "COPYING.LESSER.txt",
     "AUTHORS.txt",
     "seamshlib/LICENSE.gmsh.txt",
+    "LICENSES/*.txt",
 ]
 authors = [
     { name = "Jonathan Lambrechts", email = "jonathan.lambrechts@uclouvain.be" },
