@@ -6,7 +6,10 @@ formats directly from numpy arrays and osr spatial references.
 """
 
 # %%
-# Let's download some data.
+# Let's download some data: the test data of upstream's seamsh (the original
+# project, at UCLouvain), around the island of Porquerolles in the south of
+# France. It is downloaded, not
+# distributed with this fork.
 
 import os
 import tarfile

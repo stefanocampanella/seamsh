@@ -30,12 +30,10 @@ try:
 except ImportError:  # setuptools < 70
     from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
 
-# Keep in step with CHANGELOG.rst. Upstream's GitLab CI releases from tags "v-X.Y.Z" (PyPI) and
-# "w-X.Y.Z" (TestPyPI), which override it.
-version = "0.5.0"
-commit_tag = os.environ.get("CI_COMMIT_TAG")
-if commit_tag and (commit_tag.startswith("v-") or commit_tag.startswith("w-")):
-    version = commit_tag[2:]
+# Keep in step with CHANGELOG.rst (doc/conf.py reads it from here). The local label "+fork" tells
+# this fork's versions from upstream's releases on PyPI, which have the same numbers but other code
+# (upstream's 0.5 is not this 0.5.0).
+version = "0.5.0+fork"
 
 # Not a Python extension module: a plain shared library, loaded with ctypes in seamsh/_tools.py.
 lib = Extension(

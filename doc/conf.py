@@ -11,20 +11,20 @@
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
 import os
-import sys
+import re
 
 
 # -- Project information -----------------------------------------------------
 
 project = 'seamsh'
-copyright = '2020, Jonathan Lambrechts'
-author = 'Jonathan Lambrechts'
+copyright = ('2010-2020, Université catholique de Louvain (UCLouvain); '
+             '2026, Stefano Campanella (this fork)')
+author = 'Jonathan Lambrechts, Stefano Campanella'
 
-# The full version, including alpha/beta/rc tags
-version = "0.1"
-commit_tag = os.environ.get("CI_COMMIT_TAG")
-if commit_tag and (commit_tag.startswith("v-") or commit_tag.startswith("w-")):
-    version = commit_tag[2:]
+# The version is set in setup.py (and kept in step with CHANGELOG.rst).
+with open(os.path.join(os.path.dirname(__file__), '..', 'setup.py')) as f:
+    release = re.search(r'^version = "([^"]+)"', f.read(), re.M).group(1)
+version = release
 
 
 # -- General configuration ---------------------------------------------------

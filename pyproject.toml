@@ -20,7 +20,12 @@ license-files = [
     "AUTHORS.txt",
     "seamshlib/LICENSE.gmsh.txt",
 ]
-authors = [{ name = "Jonathan Lambrechts", email = "jonathan.lambrechts@uclouvain.be" }]
+authors = [
+    { name = "Jonathan Lambrechts", email = "jonathan.lambrechts@uclouvain.be" },
+    { name = "Stefano Campanella" },
+]
+# This fork (upstream: Jonathan Lambrechts, UCLouvain; see [project.urls]).
+maintainers = [{ name = "Stefano Campanella" }]
 requires-python = ">=3.9"
 dependencies = ["numpy", "scipy", "gdal>=3.1.0", "gmsh", "tqdm"]
 classifiers = [
@@ -48,8 +53,11 @@ doc = [
 ]
 
 [project.urls]
-Homepage = "https://git.immc.ucl.ac.be/jlambrechts/seamsh"
+Homepage = "https://github.com/stefanocampanella/seamsh"
 Documentation = "https://stefanocampanella.github.io/seamsh/"
+Issues = "https://github.com/stefanocampanella/seamsh/issues"
+Changelog = "https://github.com/stefanocampanella/seamsh/blob/develop/CHANGELOG.rst"
+Upstream = "https://git.immc.ucl.ac.be/jlambrechts/seamsh"
 
 [tool.setuptools]
 packages = ["seamsh"]

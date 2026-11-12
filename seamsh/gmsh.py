@@ -840,9 +840,7 @@ def convert_to_ugrid_mesh_file(
     encoding = {v: {"zlib": True, "complevel": 4} for v in dico_var}
     ds.attrs = {
         "title": title,
-        "institution": "Institution Name",
-        "source": "UCL(SEAMSH) & BRGM",
-        "references": "REF",
+        "source": "seamsh (https://github.com/stefanocampanella/seamsh)",
         "Conventions": "CF-1.6, UGRID-1.0",
     }
 
