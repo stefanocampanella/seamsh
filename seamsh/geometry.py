@@ -21,11 +21,12 @@
 """The geometry of a domain (boundary curves, interior curves and points) and its coarsening."""
 
 import logging
+from collections.abc import Callable
 from enum import Enum
 from itertools import chain
-from typing import Callable
 
 import numpy as np
+from numpy.typing import ArrayLike
 from osgeo import ogr, osr
 from scipy.spatial import Delaunay, cKDTree
 
@@ -117,7 +118,7 @@ class _Point:
     self.pointid = None  # index in Domain._points, set by _build_topology
 
 
-def _split_curves(curves: list, is_break: np.ndarray, loops=()) -> list:
+def _split_curves(curves: list, is_break: np.ndarray, loops: list | None = None) -> list:
   """Cuts the curves at their inner control points flagged in `is_break` (points shared with
   another curve or forced point), so that curves meet only at their end points.
 
@@ -139,6 +140,8 @@ def _split_curves(curves: list, is_break: np.ndarray, loops=()) -> list:
         new_curves.append(piece)
         pieces.append(len(new_curves) - 1)
       new_indices.append(pieces)
+  if loops is None:
+    return new_curves
   for iloop, loop in enumerate(loops):
     new_loop = []
     for curve_index, forward in loop:
@@ -352,7 +355,7 @@ class Domain:
     ]
     self._regions, self._loop_containers = _nest_loops(self._loop_polygons)
 
-  def _region_of(self, point) -> int:
+  def _region_of(self, point) -> int | None:
     """The index in `_regions` of the region that holds `point` (in the projection of the
     domain), or None if the point is outside the domain. Needs `_build_topology`."""
     region = self._regions_of(np.asarray(point, float)[None, :2])[0]
@@ -430,7 +433,7 @@ class Domain:
       count += 1
     logger.info("%d features imported", count)
 
-  def add_interior_points(self, points: np.ndarray, physical_tag: str, projection: osr.SpatialReference) -> None:
+  def add_interior_points(self, points: ArrayLike, physical_tag: str, projection: osr.SpatialReference) -> None:
     """Add forced interior mesh points
 
     Args:
@@ -443,7 +446,7 @@ class Domain:
 
   def add_boundary_curve(
     self,
-    points: np.ndarray,
+    points: ArrayLike,
     physical_tag: str,
     projection: osr.SpatialReference,
     curve_type: CurveType = CurveType.POLYLINE,
@@ -461,7 +464,7 @@ class Domain:
 
   def add_interior_curve(
     self,
-    points: np.ndarray,
+    points: ArrayLike,
     physical_tag: str,
     projection: osr.SpatialReference,
     curve_type: CurveType = CurveType.POLYLINE,
@@ -478,7 +481,7 @@ class Domain:
     curve = _Curve(points, physical_tag, curve_type, projection)
     self._interior_curves.append(curve)
 
-  def add_interior_points_shp(self, filename: str, physical_name_field: str = None) -> None:
+  def add_interior_points_shp(self, filename: str, physical_name_field: str | None = None) -> None:
     """Adds all points of a shape file as forced mesh points.
 
     Args:
@@ -491,7 +494,7 @@ class Domain:
   def add_interior_curves_shp(
     self,
     filename: str,
-    physical_name_field: str = None,
+    physical_name_field: str | None = None,
     curve_type: CurveType = CurveType.POLYLINE,
   ) -> None:
     """Adds all lines, polylines and polygons of a shape file as forced
@@ -508,7 +511,7 @@ class Domain:
   def add_boundary_curves_shp(
     self,
     filename: str,
-    physical_name_field: str = None,
+    physical_name_field: str | None = None,
     curve_type: CurveType = CurveType.POLYLINE,
   ) -> None:
     """Adds all lines, polylines and polygons of a shapefile as domain
@@ -557,7 +560,7 @@ def _point_tag_lists(point_ids, tags, n_points: int) -> np.ndarray:
 
 def coarsen_boundaries(
   domain: Domain,
-  x0: tuple,
+  x0: ArrayLike,
   x0_projection: osr.SpatialReference,
   mesh_size: MeshSizeCallback,
 ) -> Domain:

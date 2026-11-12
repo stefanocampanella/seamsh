@@ -26,7 +26,7 @@ authors = [
 ]
 # This fork (upstream: Jonathan Lambrechts, UCLouvain; see [project.urls]).
 maintainers = [{ name = "Stefano Campanella" }]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = ["numpy", "scipy", "gdal>=3.1.0", "gmsh", "tqdm"]
 classifiers = [
     "Environment :: Console",
@@ -119,7 +119,9 @@ quote-style = "double"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "C4", "SIM"]
 # Line length is the formatter's business; it leaves long comments and docstrings alone.
-ignore = ["E501"]
+# B905 (zip without strict=): the zips of the code are of equal lengths by construction; adding strict= would only
+# change how a bug shows.
+ignore = ["E501", "B905"]
 
 [tool.ruff.lint.per-file-ignores]
 # The examples are tutorials: they fetch their data before importing seamsh.

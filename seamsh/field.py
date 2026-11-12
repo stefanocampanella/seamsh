@@ -52,8 +52,8 @@ class Distance:
     self,
     domain: _Domain,
     sampling: float,
-    tags: list[str] = None,
-    projection: osr.SpatialReference = None,
+    tags: list[str] | None = None,
+    projection: osr.SpatialReference | None = None,
   ):
     """
     Args:
@@ -147,7 +147,7 @@ class Inpoly:
   """Callable evaluating the membership to a set of polygons: the closed boundary curves of a
   domain (each polygon is the polyline through the control points of one curve)."""
 
-  def __init__(self, domain: _Domain, tags: list[str] = None):
+  def __init__(self, domain: _Domain, tags: list[str] | None = None):
     """
     Args:
         domain: a Domain object containing the set of curves

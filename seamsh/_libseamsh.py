@@ -21,6 +21,7 @@ from pathlib import Path
 
 import numpy as np
 from numpy.ctypeslib import ndpointer
+from numpy.typing import ArrayLike
 
 _LIBRARY = Path(__file__).resolve().parent / "libseamsh.so"
 try:
@@ -32,8 +33,8 @@ except OSError as error:
   ) from error
 
 # Arrays of the C side: C-contiguous, of the C type, and writable (the coarsening works in place on its inputs).
-_doubles = ndpointer(np.float64, flags="C_CONTIGUOUS,WRITEABLE")
-_ints = ndpointer(np.int32, flags="C_CONTIGUOUS,WRITEABLE")
+_doubles = ndpointer(np.float64, flags=("C_CONTIGUOUS", "WRITEABLE"))
+_ints = ndpointer(np.int32, flags=("C_CONTIGUOUS", "WRITEABLE"))
 
 _lib.gen_boundaries_from_points.restype = ctypes.c_int
 _lib.gen_boundaries_from_points.argtypes = [
@@ -81,7 +82,7 @@ class CoarseningResult:
 
 
 def coarsen_boundary_points(
-  points: np.ndarray, tag_lists: np.ndarray, triangles: np.ndarray, seeds, sizes: np.ndarray
+  points: ArrayLike, tag_lists: ArrayLike, triangles: ArrayLike, seeds: ArrayLike, sizes: ArrayLike
 ) -> CoarseningResult:
   """Coarsened boundaries of the domain around seed triangles: see `seamshlib/seamsh.c`.
 
@@ -144,7 +145,7 @@ class PolyMesh:
   carries the mesh size. Its memory, allocated by the library, is given back when the object is collected, or by
   `close`."""
 
-  def __init__(self, bbmin: np.ndarray, bbmax: np.ndarray):
+  def __init__(self, bbmin: ArrayLike, bbmax: ArrayLike):
     """
     Args:
       bbmin, bbmax: lower and upper corners of a box that holds all the points to come.
@@ -157,7 +158,7 @@ class PolyMesh:
     self._n_points = 0
     self._finalizer = weakref.finalize(self, _delete_polymesh, self._address)
 
-  def add_points(self, points: np.ndarray) -> None:
+  def add_points(self, points: ArrayLike) -> None:
     """Adds points [n, 2]; they are numbered in the order they are added."""
     points = np.array(points, dtype=np.float64, order="C")
     numbers = np.arange(self._n_points, self._n_points + points.shape[0], dtype=np.int32)

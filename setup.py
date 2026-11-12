@@ -23,12 +23,8 @@
 import os
 
 from setuptools import Extension, setup
+from setuptools.command.bdist_wheel import bdist_wheel as _bdist_wheel  # setuptools >= 70 (we require 77)
 from setuptools.command.build_ext import build_ext as _build_ext
-
-try:
-  from setuptools.command.bdist_wheel import bdist_wheel as _bdist_wheel
-except ImportError:  # setuptools < 70
-  from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
 
 # Keep in step with CHANGELOG.rst (doc/conf.py reads it from here). The local label "+fork" tells
 # this fork's versions from upstream's releases on PyPI, which have the same numbers but other code

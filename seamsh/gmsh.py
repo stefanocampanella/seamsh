@@ -399,7 +399,7 @@ def _mesh_bgrid(domain: _geometry.Domain, mesh_size: _geometry.MeshSizeCallback,
 def _mesh_successive(
   domain: _geometry.Domain,
   mesh_size: _geometry.MeshSizeCallback,
-  intermediate_file_name: str = None,
+  intermediate_file_name: str | None = None,
 ) -> None:
   """Meshes the current model without smoothing the mesh size: the size is set on the curves, the
   curves are meshed, then the surface is meshed with a uniform size and remeshed three times, each
@@ -565,10 +565,10 @@ def mesh(
   domain: _geometry.Domain,
   mesh_size: _geometry.MeshSizeCallback,
   version: float = 4.1,
-  intermediate_file_name: str = None,
+  intermediate_file_name: str | None = None,
   smoothness=0.3,
-  output_srs: osr.SpatialReference = None,
-  transfinite_curves: dict = None,
+  output_srs: osr.SpatialReference | None = None,
+  transfinite_curves: dict | None = None,
   quad: bool = False,
 ) -> None:
   """Calls gmsh to generate a mesh from a geometry and a mesh size callback, it assumes that the
@@ -652,9 +652,9 @@ def mesh(
 
 def reproject(
   input_filename: str,
-  input_srs: osr.SpatialReference,
+  input_srs: osr.SpatialReference | None,
   output_filename: str,
-  output_srs: osr.SpatialReference,
+  output_srs: osr.SpatialReference | None,
   output_version: float = 4.1,
 ):
   """Change the coordinate of an existing mesh.
@@ -677,7 +677,7 @@ def reproject(
   gmsh.model.remove()
 
 
-def convert_to_gis(input_filename: str, projection: osr.SpatialReference, output_filename: str) -> None:
+def convert_to_gis(input_filename: str, projection: osr.SpatialReference | None, output_filename: str) -> None:
   """Converts a triangular gmsh mesh into shapefile or geopackage.
 
   Args:
@@ -732,7 +732,7 @@ def convert_to_gis(input_filename: str, projection: osr.SpatialReference, output
 def convert_to_ugrid_mesh_file(
   input_filename: str,
   dico_var: dict,
-  projection: osr.SpatialReference,
+  projection: osr.SpatialReference | None,
   output_filename: str,
 ) -> None:
   """Converts a triangular gmsh mesh into netcdf ugrid mesh file.
