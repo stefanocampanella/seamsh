@@ -10,7 +10,7 @@ Seamsh depends on the following python3 packages:
 
 Depending on your platform, gdal and scipy can probably be installed directly from your package manager, otherwise pip can be used (follow the links above for installation instructions).
 
-To install gmsh-dev, follow the instuctions on the gmsh-dev_ pypi page. Do not forget, to uninstall possible previous gmsh installations. Check that gmsh-dev is correctly installed with the following command.
+To install gmsh-dev, follow the instructions on the gmsh-dev_ pypi page. Do not forget, to uninstall possible previous gmsh installations. Check that gmsh-dev is correctly installed with the following command.
 
 .. code-block:: bash
 
@@ -34,16 +34,17 @@ Pre-compiled seamsh libraries are provided for 64bit linux, windows and OSX.
 
 Installation from sources
 -------------------------
-To build the package from sources, it is necessary to first compile the (small) seamsh C library. For example on linux/OSX :
+The package holds a small C library, compiled when the package is built (a C compiler is needed):
 
-.. code-block:: bash 
-  
+.. code-block:: bash
+
    git clone https://git.immc.ucl.ac.be/jlambrechts/seamsh
-   cd seamsh/seamshlib
-   mkdir build
-   cd build
-   cmake .. -DCMAKE_BUILD_TYPE=Release
-   make
-   cp *.so ../../seamsh
-   cd ../../
-   python3 setup.py build
+   cd seamsh
+   pip3 install .
+
+To work on seamsh itself, build the library in place and run the tests from the source tree:
+
+.. code-block:: bash
+
+   python3 setup.py build_ext --inplace
+   python3 -m pytest

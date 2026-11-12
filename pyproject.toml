@@ -1,0 +1,71 @@
+# SPDX-FileCopyrightText: 2026 Stefano Campanella
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "seamsh"
+# The version and the C library (seamsh/libseamsh.so) are defined in setup.py.
+dynamic = ["version"]
+description = "Ocean mesh generation"
+readme = "README.rst"
+# seamsh as a whole: see LICENSE.txt (upstream's files are LGPL-3.0-or-later, the files from gmsh GPL).
+license = "GPL-3.0-or-later"
+license-files = [
+    "LICENSE.txt",
+    "COPYING.txt",
+    "COPYING.LESSER.txt",
+    "AUTHORS.txt",
+    "seamshlib/LICENSE.gmsh.txt",
+]
+authors = [{ name = "Jonathan Lambrechts", email = "jonathan.lambrechts@uclouvain.be" }]
+requires-python = ">=3.9"
+dependencies = ["numpy", "scipy", "gdal>=3.1.0", "gmsh", "tqdm"]
+classifiers = [
+    "Environment :: Console",
+    "Development Status :: 4 - Beta",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS :: MacOS X",
+    "Programming Language :: C",
+    "Programming Language :: Python",
+    "Topic :: Scientific/Engineering",
+]
+
+[project.optional-dependencies]
+# gmsh.convert_to_ugrid_mesh_file
+ugrid = ["xarray", "netcdf4"]
+dev = ["pytest", "ruff", "pre-commit"]
+
+[project.urls]
+Homepage = "https://git.immc.ucl.ac.be/jlambrechts/seamsh"
+Documentation = "http://jlambrechts.git-page.immc.ucl.ac.be/seamsh"
+
+[tool.setuptools]
+packages = ["seamsh"]
+
+[tool.setuptools.package-data]
+seamsh = ["*.so"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Import seamsh from the source tree (needs `python setup.py build_ext --inplace` first).
+pythonpath = [".", "tests"]
+
+[tool.ruff]
+line-length = 100
+extend-exclude = ["refactoring-kit", "doc/conf.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "C4", "SIM"]
+# Line length is the formatter's business; it leaves long comments and docstrings alone.
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# The examples are tutorials: they fetch their data before importing seamsh.
+"examples/*" = ["E402", "SIM115"]
+
+[tool.codespell]
+skip = "seamshlib/polymesh.c,seamshlib/polymesh.h,seamshlib/robustPredicates.c,seamshlib/robustPredicates.h,seamshlib/qsort.h,seamshlib/vector.h,COPYING.txt,COPYING.LESSER.txt,seamshlib/LICENSE.gmsh.txt,AUTHORS.txt,refactoring-kit,tests/data,build,*.msh"

@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+doc/_build/
+doc/examples/
+# Local material for the refactoring (large data, files from other projects).
+refactoring-kit/
+.coverage

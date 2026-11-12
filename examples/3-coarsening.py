@@ -21,19 +21,27 @@
 # This example starts as the previous one.
 
 import os
-import urllib.request
 import tarfile
+import urllib.request
+
 if not os.path.isdir("data"):
     url = "https://nextcloud.cism.ucl.ac.be/s/e7daeWsMpormjpz/download/data-test-1.tar.gz"
     urllib.request.urlretrieve(url, "data-test-1.tar.gz")
     f = tarfile.open("data-test-1.tar.gz", "r:*")
     f.extractall()
 
-import seamsh
-from seamsh.geometry import CurveType
-import seamsh.geometry
+import gmsh
 import numpy as np
 from osgeo import osr
+
+import seamsh
+import seamsh.geometry
+from seamsh.geometry import CurveType
+
+# %%
+# seamsh drives gmsh, which has to be initialized first.
+
+gmsh.initialize()
 
 lonlat = osr.SpatialReference()
 lonlat.ImportFromProj4("+proj=latlong +ellps=WGS84 +unit=degrees")
@@ -43,15 +51,15 @@ utm31 = osr.SpatialReference()
 utm31.ImportFromProj4("+proj=utm +ellps=WGS84 +zone=31")
 
 domain = seamsh.geometry.Domain(utm31)
-domain.add_boundary_curves_shp("data/data_no_duplicate.shp",
-                               "physical", CurveType.POLYLINE)
+domain.add_boundary_curves_shp("data/data_no_duplicate.shp", "physical", CurveType.POLYLINE)
 
 # %%
 # Clip the domain by a circle in UTM (zone32) coordinates
 
-alphas = np.linspace(0, 2*np.pi, 200)
-circle_points = np.array([[272e3, 4763e3]]) \
-                + 50e3*np.column_stack([np.sin(alphas), np.cos(alphas)])
+alphas = np.linspace(0, 2 * np.pi, 200)
+circle_points = np.array([[272e3, 4763e3]]) + 50e3 * np.column_stack(
+    [np.sin(alphas), np.cos(alphas)]
+)
 domain.add_boundary_curve(circle_points, "open", utm32)
 
 dist_coast = seamsh.field.Distance(domain, 100, ["coast", "island"])
@@ -59,8 +67,8 @@ dist_porquerolles = seamsh.field.Distance(domain, 20, ["porquerolles"])
 
 
 def mesh_size(x, projection):
-    s_coast = np.clip((dist_coast(x, projection)-400)*0.5, 200, 5000)
-    s_porq = np.clip((dist_porquerolles(x, projection)-200)*0.5, 50, 5000)
+    s_coast = np.clip((dist_coast(x, projection) - 400) * 0.5, 200, 5000)
+    s_porq = np.clip((dist_porquerolles(x, projection) - 200) * 0.5, 50, 5000)
     s_dist = np.minimum(s_coast, s_porq)
     return s_dist
 
@@ -69,10 +77,10 @@ def mesh_size(x, projection):
 # The geometry.coarsen_boundaries function requires in input the coordinates
 # of one (any) point which is inside the domain.
 
-coarse = seamsh.geometry.coarsen_boundaries(domain, (6.21, 42.95),
-                                            lonlat, mesh_size)
+coarse = seamsh.geometry.coarsen_boundaries(domain, (6.21, 42.95), lonlat, mesh_size)
 
 # %%
 # The resulting coarsened domain can be meshed normally.
 
-seamsh.gmsh.mesh(coarse, "coarse_boundary_mesh.msh", mesh_size)
+seamsh.gmsh.mesh(coarse, mesh_size)
+gmsh.write("coarse_boundary_mesh.msh")

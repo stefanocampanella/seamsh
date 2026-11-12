@@ -9,8 +9,9 @@
 # We start as usual.
 
 import os
-import urllib.request
 import tarfile
+import urllib.request
+
 if not os.path.isdir("data"):
     url = "https://nextcloud.cism.ucl.ac.be/s/e7daeWsMpormjpz/download/data-test-1.tar.gz"
     urllib.request.urlretrieve(url, "data-test-1.tar.gz")
@@ -18,41 +19,47 @@ if not os.path.isdir("data"):
     f.extractall()
 
 
-import seamsh
-from seamsh.geometry import CurveType
-import seamsh.geometry
+import gmsh
 import numpy as np
 from osgeo import osr
+
+import seamsh
+import seamsh.geometry
+from seamsh.geometry import CurveType
+
+# %%
+# seamsh drives gmsh, which has to be initialized first.
+
+gmsh.initialize()
 
 domain_srs = osr.SpatialReference()
 domain_srs.ImportFromProj4("+proj=utm +ellps=WGS84 +zone=31")
 domain = seamsh.geometry.Domain(domain_srs)
-domain.add_boundary_curves_shp("data/data_no_duplicate.shp",
-                               "physical", CurveType.POLYLINE)
+domain.add_boundary_curves_shp("data/data_no_duplicate.shp", "physical", CurveType.POLYLINE)
 
 dist_coast = seamsh.field.Distance(domain, 100, ["coast", "island"])
 dist_porquerolles = seamsh.field.Distance(domain, 20, ["porquerolles"])
 
 
 def mesh_size(x, projection):
-    s_coast = np.clip((dist_coast(x, projection)-400)*0.5, 200, 5000)
-    s_porq = np.clip((dist_porquerolles(x, projection)-200)*0.5, 50, 5000)
+    s_coast = np.clip((dist_coast(x, projection) - 400) * 0.5, 200, 5000)
+    s_porq = np.clip((dist_porquerolles(x, projection) - 200) * 0.5, 50, 5000)
     s_dist = np.minimum(s_coast, s_porq)
     return s_dist
 
 
-coarse = seamsh.geometry.coarsen_boundaries(domain, (8e5, 4.68e6),
-                                            domain_srs, mesh_size)
+coarse = seamsh.geometry.coarsen_boundaries(domain, (8e5, 4.68e6), domain_srs, mesh_size)
 
 # %%
 # The gmsh options are set. The full list of gmsh mesh options can be found in
 # `gmsh's documentation <https://gmsh.info/doc/texinfo/gmsh.html#Mesh-options-list>`_.
 
-seamsh.gmsh.gmsh.option.setNumber("Mesh.RecombineAll", 1)
-seamsh.gmsh.gmsh.option.setNumber("Mesh.RecombinationAlgorithm", 1)
-seamsh.gmsh.gmsh.option.setNumber("Mesh.Algorithm", 8)
+gmsh.option.setNumber("Mesh.RecombineAll", 1)
+gmsh.option.setNumber("Mesh.RecombinationAlgorithm", 1)
+gmsh.option.setNumber("Mesh.Algorithm", 8)
 
 # %%
 # Eventually the mesh is generated.
 
-seamsh.gmsh.mesh(coarse, "quad_mesh.msh", mesh_size)
+seamsh.gmsh.mesh(coarse, mesh_size)
+gmsh.write("quad_mesh.msh")

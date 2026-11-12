@@ -4,10 +4,17 @@
 # This example illustrates how to insert different types of curves
 # directly from numpy arrays and osr spatial references.
 
-import seamsh
-from seamsh.geometry import CurveType
+import gmsh
 import numpy as np
 from osgeo import osr
+
+import seamsh
+from seamsh.geometry import CurveType
+
+# %%
+# seamsh drives gmsh, which has to be initialized first.
+
+gmsh.initialize()
 
 # %%
 # First,  let's create a domain object and its associated projection.
@@ -25,9 +32,12 @@ domain = seamsh.geometry.Domain(domain_srs)
 # A STRICTPOLYLINE curve linearly interpolates control points and forces a mesh
 # point on each control point.
 
-domain.add_boundary_curve([[0, 0], [-0.2, 0.25], [-0.2, 0.75], [0, 1]],
-                          "wall0", domain_srs,
-                          curve_type=CurveType.STRICTPOLYLINE)
+domain.add_boundary_curve(
+    [[0, 0], [-0.2, 0.25], [-0.2, 0.75], [0, 1]],
+    "wall0",
+    domain_srs,
+    curve_type=CurveType.STRICTPOLYLINE,
+)
 
 # %%
 # A POLYLINE is similar to a STRICTPOLYLINE but no mesh point is forced on the
@@ -81,11 +91,17 @@ domain.add_interior_points(x, "forcedpoint2", domain_srs)
 # defines the mesh element size. In this case,  a simple analytical function is
 # used.
 
+
 def mesh_size(x, projection):
-    return (0.005+(1+np.sin(4*np.pi*x[:, 1]*np.pi*x[:, 0]))*0.01)
+    return 0.005 + (1 + np.sin(4 * np.pi * x[:, 1] * np.pi * x[:, 0])) * 0.01
 
 
 # %%
 # Finally,  the seamesh.gmsh.mesh function generates the mesh.
 
-seamsh.gmsh.mesh(domain, "basic_geometry.msh", mesh_size, version=2.0)
+seamsh.gmsh.mesh(domain, mesh_size, version=2.0)
+
+# %%
+# The mesh is in the current gmsh model: gmsh writes it to a file.
+
+gmsh.write("basic_geometry.msh")

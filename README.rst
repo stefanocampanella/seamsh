@@ -6,7 +6,7 @@ Main Features :
 - Define arbitrary mesh elements size fields based on distances from lines or raster files.
 - Create a low-resolution valid topology from high-resolution non-conformal (i.e. intersecting) data.
 
-Seamesh is distributed under the GPL_. See the project gitlab page for the `source code`_  and `bug reports`_. The documentation_ contains examples, Python API reference and installation instructions.
+Seamsh is free software, distributed under the GPL_ (version 3 or later): its own files are under the LGPL_ (version 3 or later), and the compiled library contains files from gmsh, which are under the GPL (see ``LICENSE.txt``). See the project gitlab page for the `source code`_  and `bug reports`_. The documentation_ contains examples, Python API reference and installation instructions.
 Binary packages for 64 bits linux, windows and OSX are available on pypi_.
 
 .. _gmsh : https://www.gmsh.info
@@ -17,4 +17,5 @@ Binary packages for 64 bits linux, windows and OSX are available on pypi_.
 .. _documentation : http://jlambrechts.git-page.immc.ucl.ac.be/seamsh
 .. _bug reports : https://git.immc.ucl.ac.be/jlambrechts/seamsh/-/issues
 .. _GPL : https://www.gnu.org/licenses/gpl-3.0.html
+.. _LGPL : https://www.gnu.org/licenses/lgpl-3.0.html
 .. _pypi : https://test.pypi.org/project/seamsh

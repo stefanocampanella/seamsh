@@ -22,6 +22,56 @@ GNU Lesser General Public License for more details.
 You should have received a copy of the GNU Lesser General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+The text of the GNU Lesser General Public License is in COPYING.LESSER.txt. It refers to the GNU
+General Public License, version 3, whose text is in COPYING.txt.
+
+Changes made in this fork (https://github.com/stefanocampanella/seamsh)
+-----------------------------------------
+
+The changes are recorded in the git history and in CHANGELOG.rst.
+
+- Changes to existing files are licensed under the same terms as the files they are in.
+- Files added by the fork are licensed under the GNU General Public License, version 3 or (at your
+  option) any later version (COPYING.txt), so that the project as a whole is under one license.
+  Those that can hold a comment say so in an SPDX header; the others are: .clang-format,
+  .gitignore, CLAUDE.md, COPYING.LESSER.txt (the license text itself) and the test data below.
+
+Files from other projects
+-----------------------------------------
+
+In seamshlib:
+
+- polymesh.c: a C version of PolyMesh (Mesh/meshPolyMesh.h) from Gmsh, Copyright (C) 1997-2021
+  C. Geuzaine, J.-F. Remacle, GNU General Public License, version 2 or later, with the exception
+  stated in Gmsh's LICENSE.txt. A copy of Gmsh's LICENSE.txt, as of Gmsh 4.8.4 (2021), is in
+  seamshlib/LICENSE.gmsh.txt.
+- polymesh.h: the C interface of polymesh.c. It has no header and its license is not stated; it is
+  distributed with polymesh.c, under the same terms.
+- robustPredicates.c, robustPredicates.h: the robust geometric predicates of Jonathan Richard
+  Shewchuk (placed in the public domain), as modified in Gmsh (static filters set by exactinit):
+  robustPredicates.c is Gmsh 4.8.4's Numeric/robustPredicates.cpp with three lines changed. The
+  modifications are distributed with Gmsh, under Gmsh's license (above).
+- qsort.h: Copyright (c) 2013, 2017 Alexey Tourbin, MIT license (text in the file).
+- vector.h: from MigFlow, Copyright (C) 2010-2020 Universite catholique de Louvain and Universite
+  de Montpellier, GNU Lesser General Public License, version 3 or later.
+
+In tests/data:
+
+- ne_110m_coastline: the 1:110m coastline of Natural Earth, version 4.1.0
+  (https://www.naturalearthdata.com), in the public domain.
+
+seamsh as a whole
+-----------------------------------------
+
+The library compiled from seamshlib (seamsh/libseamsh.so) contains the files from Gmsh above, and
+the Python package cannot be used without it. seamsh as a whole (this source tree, and packages
+or images that contain the compiled library) is therefore distributed under the terms of the GNU
+General Public License, version 3 or (at your option) any later version (COPYING.txt). Both
+licenses allow it: the GNU Lesser General Public License of seamsh's own files is the GNU General
+Public License with additional permissions, and the license of the files from Gmsh is the GNU
+General Public License, version 2 or later. The files of seamsh itself can be used
+separately under the GNU Lesser General Public License, as their headers say.
+
 The list of the contributors to the development of seamsh is given in the AUTHORS file (all authors are or were affiliate to the Universite catholique de Louvain, UCL when they developed seamsh).
 
 Website of seamsh: https://git.immc.ucl.ac.be/jlambrechts/seamsh
