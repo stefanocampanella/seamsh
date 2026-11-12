@@ -17,9 +17,9 @@ coastline_url = "https://naciscdn.org/naturalearth/10m/physical/ne_10m_coastline
 shp_file = "ne_10m_coastline/ne_10m_coastline.shp"
 
 if not os.path.isfile(shp_file):
-    req = requests.get(coastline_url, allow_redirects=True)
-    open("ne_10m_coastline.zip", "wb").write(req.content)
-    zipfile.ZipFile("ne_10m_coastline.zip").extractall("ne_10m_coastline")
+  req = requests.get(coastline_url, allow_redirects=True)
+  open("ne_10m_coastline.zip", "wb").write(req.content)
+  zipfile.ZipFile("ne_10m_coastline.zip").extractall("ne_10m_coastline")
 
 import gmsh
 import numpy as np
@@ -60,10 +60,10 @@ dist_coast = seamsh.field.Distance(domain, 10000, projection=cart_srs)
 
 
 def mesh_size(x, projection):
-    s_coast = np.clip((dist_coast(x, projection) - 20000) * 0.5, 20000, 100000)
-    R = 6371000
-    stereo_factor = 2 / (1 + x[:, 0] ** 2 / R**2 + x[:, 1] ** 2 / R**2)
-    return s_coast / stereo_factor
+  s_coast = np.clip((dist_coast(x, projection) - 20000) * 0.5, 20000, 100000)
+  R = 6371000
+  stereo_factor = 2 / (1 + x[:, 0] ** 2 / R**2 + x[:, 1] ** 2 / R**2)
+  return s_coast / stereo_factor
 
 
 coarse = seamsh.geometry.coarsen_boundaries(domain, (0, 0), domain_srs, mesh_size)

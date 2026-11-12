@@ -22,9 +22,9 @@ coastline_url = "https://naciscdn.org/naturalearth/10m/physical/ne_10m_coastline
 shp_file = "ne_10m_coastline/ne_10m_coastline.shp"
 
 if not os.path.isfile(shp_file):
-    req = requests.get(coastline_url, allow_redirects=True)
-    open("ne_10m_coastline.zip", "wb").write(req.content)
-    zipfile.ZipFile("ne_10m_coastline.zip").extractall("ne_10m_coastline")
+  req = requests.get(coastline_url, allow_redirects=True)
+  open("ne_10m_coastline.zip", "wb").write(req.content)
+  zipfile.ZipFile("ne_10m_coastline.zip").extractall("ne_10m_coastline")
 
 import gmsh
 import numpy as np
@@ -53,10 +53,10 @@ R = 6371000
 
 
 def uniform_on_earth(size):
-    def mesh_size(x, projection):
-        return size * (1 + (x[:, 0] ** 2 + x[:, 1] ** 2) / (4 * R**2))
+  def mesh_size(x, projection):
+    return size * (1 + (x[:, 0] ** 2 + x[:, 1] ** 2) / (4 * R**2))
 
-    return mesh_size
+  return mesh_size
 
 
 # %%
@@ -73,12 +73,12 @@ lonlat.ImportFromEPSG(4326)
 lonlat.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
 
 seeds = [
-    (0.0, 90.0),  # Arctic Ocean: the global ocean
-    (18.0, 35.0),  # Mediterranean Sea
-    (34.0, 43.5),  # Black Sea
-    (36.5, 46.0),  # Sea of Azov
-    (20.0, 58.0),  # Baltic Sea
-    (38.5, 20.0),  # Red Sea
+  (0.0, 90.0),  # Arctic Ocean: the global ocean
+  (18.0, 35.0),  # Mediterranean Sea
+  (34.0, 43.5),  # Black Sea
+  (36.5, 46.0),  # Sea of Azov
+  (20.0, 58.0),  # Baltic Sea
+  (38.5, 20.0),  # Red Sea
 ]
 coarse = seamsh.geometry.coarsen_boundaries(domain, seeds, lonlat, uniform_on_earth(30e3))
 
@@ -103,20 +103,18 @@ cart_srs.ImportFromProj4("+ellps=WGS84 +proj=cart +units=m +x_0=0 +y_0=0")
 
 meshes = {}
 for name, size in (("fine", 300e3), ("coarse", 600e3)):
-    gmsh.model.add(name)
-    seamsh.gmsh.mesh(coarse, uniform_on_earth(size))
-    gmsh.write(f"enclosed_seas_{name}_stereo.msh")
+  gmsh.model.add(name)
+  seamsh.gmsh.mesh(coarse, uniform_on_earth(size))
+  gmsh.write(f"enclosed_seas_{name}_stereo.msh")
 
-    node_tags, xyz, _ = gmsh.model.mesh.getNodes()
-    xyz = xyz.reshape(-1, 3)
-    index = np.zeros(node_tags.max() + 1, int)
-    index[node_tags] = np.arange(node_tags.size)
-    _, triangle_nodes = gmsh.model.mesh.getElementsByType(2)
-    meshes[name] = xyz, index[triangle_nodes.reshape(-1, 3)]
+  node_tags, xyz, _ = gmsh.model.mesh.getNodes()
+  xyz = xyz.reshape(-1, 3)
+  index = np.zeros(node_tags.max() + 1, int)
+  index[node_tags] = np.arange(node_tags.size)
+  _, triangle_nodes = gmsh.model.mesh.getElementsByType(2)
+  meshes[name] = xyz, index[triangle_nodes.reshape(-1, 3)]
 
-    seamsh.gmsh.reproject(
-        f"enclosed_seas_{name}_stereo.msh", domain_srs, f"enclosed_seas_{name}.msh", cart_srs
-    )
+  seamsh.gmsh.reproject(f"enclosed_seas_{name}_stereo.msh", domain_srs, f"enclosed_seas_{name}.msh", cart_srs)
 
 # %%
 # Both meshes, drawn in longitude and latitude. Triangles that cross the
@@ -128,14 +126,14 @@ from matplotlib.tri import Triangulation
 to_lonlat = osr.CoordinateTransformation(domain_srs, lonlat)
 fig, axes = plt.subplots(2, 1, figsize=(10, 10))
 for ax, (name, (xyz, triangles)) in zip(axes, meshes.items()):
-    lon, lat = np.array(to_lonlat.TransformPoints(xyz[:, :2]))[:, :2].T
-    mask = np.ptp(lon[triangles], axis=1) > 180
-    ax.triplot(Triangulation(lon, lat, triangles, mask=mask), color="k", linewidth=0.3)
-    ax.set_title(f"{name}: {len(triangles)} triangles")
-    ax.set_aspect("equal")
-    ax.set_xticks(np.arange(-180, 181, 60))
-    ax.set_yticks(np.arange(-90, 91, 30))
-    ax.set_ylabel("latitude (degrees)")
+  lon, lat = np.array(to_lonlat.TransformPoints(xyz[:, :2]))[:, :2].T
+  mask = np.ptp(lon[triangles], axis=1) > 180
+  ax.triplot(Triangulation(lon, lat, triangles, mask=mask), color="k", linewidth=0.3)
+  ax.set_title(f"{name}: {len(triangles)} triangles")
+  ax.set_aspect("equal")
+  ax.set_xticks(np.arange(-180, 181, 60))
+  ax.set_yticks(np.arange(-90, 91, 30))
+  ax.set_ylabel("latitude (degrees)")
 axes[1].set_xlabel("longitude (degrees)")
 plt.show()
 

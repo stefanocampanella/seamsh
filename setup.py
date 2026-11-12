@@ -26,9 +26,9 @@ from setuptools import Extension, setup
 from setuptools.command.build_ext import build_ext as _build_ext
 
 try:
-    from setuptools.command.bdist_wheel import bdist_wheel as _bdist_wheel
+  from setuptools.command.bdist_wheel import bdist_wheel as _bdist_wheel
 except ImportError:  # setuptools < 70
-    from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
+  from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
 
 # Keep in step with CHANGELOG.rst (doc/conf.py reads it from here). The local label "+fork" tells
 # this fork's versions from upstream's releases on PyPI, which have the same numbers but other code
@@ -37,28 +37,28 @@ version = "0.5.0+fork"
 
 # Not a Python extension module: a plain shared library, loaded with ctypes in seamsh/_tools.py.
 lib = Extension(
-    "seamsh.libseamsh",
-    sources=["seamshlib/seamsh.c", "seamshlib/polymesh.c", "seamshlib/robustPredicates.c"],
+  "seamsh.libseamsh",
+  sources=["seamshlib/seamsh.c", "seamshlib/polymesh.c", "seamshlib/robustPredicates.c"],
 )
 
 
 class bdist_wheel(_bdist_wheel):
-    """Tags the wheel as independent of the Python version (the library does not use the C API)."""
+  """Tags the wheel as independent of the Python version (the library does not use the C API)."""
 
-    def get_tag(self):
-        otag = _bdist_wheel.get_tag(self)
-        return ("py3", "none", otag[2])
+  def get_tag(self):
+    otag = _bdist_wheel.get_tag(self)
+    return ("py3", "none", otag[2])
 
 
 class build_ext(_build_ext):
-    """Names the library `libseamsh.so` on every platform: the name seamsh/_tools.py loads."""
+  """Names the library `libseamsh.so` on every platform: the name seamsh/_tools.py loads."""
 
-    def get_ext_filename(self, fullname):
-        return os.path.join(*fullname.split(".")) + ".so"
+  def get_ext_filename(self, fullname):
+    return os.path.join(*fullname.split(".")) + ".so"
 
 
 setup(
-    version=version,
-    ext_modules=[lib],
-    cmdclass={"bdist_wheel": bdist_wheel, "build_ext": build_ext},
+  version=version,
+  ext_modules=[lib],
+  cmdclass={"bdist_wheel": bdist_wheel, "build_ext": build_ext},
 )

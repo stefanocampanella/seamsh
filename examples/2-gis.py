@@ -16,10 +16,10 @@ import tarfile
 import urllib.request
 
 if not os.path.isdir("data2"):
-    url = "https://nextcloud.cism.ucl.ac.be/s/TfY6tCzrqiKaTTX/download/data-test-2.tar.gz"
-    urllib.request.urlretrieve(url, "data-test-2.tar.gz")
-    f = tarfile.open("data-test-2.tar.gz", "r:*")
-    f.extractall()
+  url = "https://nextcloud.cism.ucl.ac.be/s/TfY6tCzrqiKaTTX/download/data-test-2.tar.gz"
+  urllib.request.urlretrieve(url, "data-test-2.tar.gz")
+  f = tarfile.open("data-test-2.tar.gz", "r:*")
+  f.extractall()
 
 # %%
 # The actual example starts here.
@@ -89,10 +89,10 @@ dist_porquerolles = seamsh.field.Distance(domain, 20, ["porquerolles"])
 
 
 def mesh_size(x, projection):
-    s_coast = np.clip((dist_coast(x, projection) - 400) * 0.5, 200, 5000)
-    s_porq = np.clip((dist_porquerolles(x, projection) - 200) * 0.5, 50, 5000)
-    s_dist = np.minimum(s_coast, s_porq)
-    return s_dist
+  s_coast = np.clip((dist_coast(x, projection) - 400) * 0.5, 200, 5000)
+  s_porq = np.clip((dist_porquerolles(x, projection) - 200) * 0.5, 50, 5000)
+  s_dist = np.minimum(s_coast, s_porq)
+  return s_dist
 
 
 # %%
