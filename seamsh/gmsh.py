@@ -351,7 +351,10 @@ def _mesh_bgrid(domain: _geometry.Domain, mesh_size: _geometry.MeshSizeCallback,
     edges.sort(axis=1)
     shift = 2**32
     edges = edges.astype(np.uint64)
-    ekey = np.unique(edges[:, 0] * shift + edges[:, 1])
+    # The sorted distinct keys, as np.unique gives them, but by sorting: numpy 2's np.unique of integers hashes them,
+    # 25 times slower here (7.5 of the 80 s of a 25 km global mesh).
+    ekey = np.sort(edges[:, 0] * shift + edges[:, 1])
+    ekey = ekey[np.r_[True, ekey[1:] != ekey[:-1]]]
     edges = np.c_[ekey // shift, ekey % shift]
     dedges = xy[edges[:, 0]] - xy[edges[:, 1]]
     elength = np.hypot(dedges[:, 0], dedges[:, 1])
@@ -463,6 +466,16 @@ def _mesh_successive(
   gmsh.model.mesh.field.remove(bg_field)
 
 
+def _gmsh_has_option(name: str) -> bool:
+  """Whether this gmsh knows the numerical option `name` (options of development builds and branches are
+  probed, not inferred from the version)."""
+  try:
+    gmsh.option.getNumber(name)
+  except Exception:  # gmsh raises a plain Exception for an unknown option
+    return False
+  return True
+
+
 def _gmsh_has_quad_algorithm() -> bool:
   """Whether the "Frontal-Delaunay for Quads" algorithm (Mesh.Algorithm 8) can be used.
 
@@ -561,11 +574,18 @@ def _reproject(input_srs, output_srs):
   ntags, nx, _ = gmsh.model.mesh.get_nodes()
   nx = nx.reshape(-1, 3)
   nx = project_points(nx, input_srs, output_srs)
-  for i, x in zip(ntags, nx):
-    if len(x) == 3:
-      gmsh.model.mesh.set_node(i, [x[0], x[1], x[2]], [])
-    else:
-      gmsh.model.mesh.set_node(i, [x[0], x[1], 0], [])
+  # gmsh wants three coordinates, also in a two-dimensional projection.
+  xyz = np.zeros((len(nx), 3))
+  xyz[:, : nx.shape[1]] = nx
+  set_nodes = getattr(gmsh.model.mesh, "setNodes", None)
+  if set_nodes is not None:
+    # One call for all the nodes (gmsh 5 development builds): the loop below costs a few microseconds per node in
+    # gmsh's Python binding (5 s for the 750,000 nodes of a 25 km global mesh). No parametric coordinates: the nodes
+    # are on entities of every dimension.
+    set_nodes(ntags, xyz.ravel(), [])
+  else:
+    for tag, x in zip(ntags, xyz):
+      gmsh.model.mesh.set_node(tag, x, [])
 
   for _, tag in gmsh.model.get_entities(0):
     _, x, _ = gmsh.model.mesh.get_nodes(0, tag)
@@ -587,6 +607,8 @@ def mesh(
   output_srs: osr.SpatialReference | None = None,
   transfinite_curves: dict | None = None,
   quad: bool = False,
+  optimize: bool = True,
+  valence_repair: bool = False,
 ) -> None:
   """Calls gmsh to generate a mesh from a geometry and a mesh size callback, it assumes that the
   gmsh is initialized and use the current model.
@@ -620,8 +642,18 @@ def mesh(
       quad: if True, generate quadrangles instead of triangles. This a achieved by
           generating a quad-dominant mesh and then splitting all elements (quads and
           triangles) into quads. So the resulting mesh size is half the prescribed one.
+      optimize: if True (the default), gmsh's optimiser "Relocate2D" moves the nodes of the poorest triangles
+          once the mesh is generated (triangles only). It raises the worst triangles of coastal meshes (e.g. gamma
+          0.47 -> 0.54 on a 400 km global ocean mesh) at little cost.
+      valence_repair: if True, gmsh reworks the triangles once generated towards nodes with six neighbours
+          (option Mesh.ValenceRepair2D, as upstream seamsh does). Only in gmsh's branch valence-repair-2d today:
+          https://gitlab.onelab.info/gmsh/gmsh/-/tree/valence-repair-2d.
   Raises:
-      RuntimeError: with quad=True, if this build of gmsh cannot run the quadrangle algorithm.
+      RuntimeError: with quad=True, if this build of gmsh cannot run the quadrangle algorithm; with
+          valence_repair=True, if it has no valence repair.
+
+  To write the mesh in binary (smaller, and several times faster to write), set
+  `gmsh.option.setNumber("Mesh.Binary", 1)` before `gmsh.write`.
   """
   logger.info("Generate mesh")
   if transfinite_curves is None:
@@ -631,8 +663,14 @@ def mesh(
       "quad=True needs a gmsh built with ANN: in this build "
       f"(gmsh {gmsh.__version__}) the quadrangle algorithm crashes the process"
     )
+  if valence_repair and not _gmsh_has_option("Mesh.ValenceRepair2D"):
+    raise RuntimeError(
+      f"valence_repair=True needs a gmsh with the option Mesh.ValenceRepair2D (gmsh {gmsh.__version__} has not): "
+      "today only gmsh's branch valence-repair-2d, https://gitlab.onelab.info/gmsh/gmsh/-/tree/valence-repair-2d"
+    )
   domain._build_topology()
-  with _restored_options(_MESH_OPTIONS):
+  options = _MESH_OPTIONS + (["Mesh.ValenceRepair2D"] if valence_repair else [])
+  with _restored_options(options):
     curves_of_loops = _create_gmsh_geometry(domain)
     # Before the caller's transfinite curves, which prevail.
     _keep_small_regions(domain, mesh_size, curves_of_loops)
@@ -646,10 +684,16 @@ def mesh(
       gmsh.option.setNumber("Mesh.RecombinationAlgorithm", 1)
       gmsh.option.setNumber("Mesh.Algorithm", 8)
 
+    if valence_repair:
+      gmsh.option.setNumber("Mesh.ValenceRepair2D", 2)
     if smoothness > 0:
       _mesh_bgrid(domain, mesh_size, smoothness)
     else:
       _mesh_successive(domain, mesh_size, intermediate_file_name)
+    if optimize and not quad:
+      # Moves the nodes of the poorest triangles, in the plane of the domain (before any reprojection).
+      logger.info("Optimize the triangles (Relocate2D)")
+      gmsh.model.mesh.optimize("Relocate2D")
 
     if quad:
       gmsh.option.setNumber("Mesh.SubdivisionAlgorithm", 1)

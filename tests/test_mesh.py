@@ -600,3 +600,72 @@ def test_quad_mesh(model):
     "domain",
     "island",
   ]
+
+
+def test_gamma_is_gmsh_quality(model):
+  """The quality of the tests (`quality.py`, moby-dick's gamma: twice the inscribed over the circumscribed radius) is
+  gmsh's "gamma" quality of the triangles."""
+  from quality import mesh_quality
+
+  seamsh.gmsh.mesh(square_with_island(), uniform(20e3))
+  tags, _ = gmsh.model.mesh.getElementsByType(2)
+  np.testing.assert_allclose(mesh_quality().gamma, gmsh.model.mesh.getElementQualities(tags, "gamma"), atol=1e-9)
+
+
+def test_valence_repair_needs_a_gmsh_that_has_it(model):
+  """valence_repair=True uses gmsh's Mesh.ValenceRepair2D, which only gmsh's branch valence-repair-2d has today:
+  without it, the error says so (gmsh would accept the unknown option without a word)."""
+  if seamsh.gmsh._gmsh_has_option("Mesh.ValenceRepair2D"):
+    seamsh.gmsh.mesh(square_with_island(), uniform(20e3), valence_repair=True)
+    assert len(current_mesh()["triangles"]) > 0
+  else:
+    with pytest.raises(RuntimeError, match="valence-repair-2d"):
+      seamsh.gmsh.mesh(square_with_island(), uniform(20e3), valence_repair=True)
+  assert not seamsh.gmsh._gmsh_has_option("Mesh.NoSuchOption")
+
+
+def test_reproject_in_one_call_when_gmsh_can(model, tmp_path, monkeypatch):
+  """With gmsh's bulk `mesh.setNodes` (gmsh 5 development builds), the nodes are moved in one call instead of one
+  call per node (5 s for a 25 km global mesh); the coordinates are the same."""
+  seamsh.gmsh.mesh(square_with_island(), uniform(20e3))
+  gmsh.write(str(tmp_path / "in.msh"))
+  lonlat = osr.SpatialReference()
+  lonlat.ImportFromEPSG(4326)
+  lonlat.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+
+  def reprojected():
+    seamsh.gmsh.reproject(str(tmp_path / "in.msh"), None, str(tmp_path / "out.msh"), lonlat)
+    gmsh.clear()
+    gmsh.open(str(tmp_path / "out.msh"))
+    tags, x, _ = gmsh.model.mesh.getNodes()
+    return x.reshape(-1, 3)[np.argsort(tags)]
+
+  per_node = reprojected()
+  calls = []
+
+  def set_nodes(tags, coord, parametric):
+    calls.append(len(tags))
+    for tag, x in zip(tags, np.reshape(coord, (-1, 3))):
+      gmsh.model.mesh.setNode(tag, x, [])
+
+  monkeypatch.setattr(gmsh.model.mesh, "setNodes", set_nodes, raising=False)
+  np.testing.assert_array_equal(reprojected(), per_node)
+  assert len(calls) == 1
+
+
+def test_background_grid_edges_without_np_unique(model, monkeypatch):
+  """The edges of the background grid are made unique by sorting (numpy 2's np.unique of integers is 25 times
+  slower): the mesh is the same as with np.unique."""
+  seamsh.gmsh.mesh(square_with_island(), uniform(10e3))
+  reference = current_mesh()
+  real_sort = np.sort
+
+  def unique_sort(a, *args, **kwargs):
+    return np.unique(a) if a.dtype == np.uint64 else real_sort(a, *args, **kwargs)
+
+  monkeypatch.setattr(seamsh.gmsh.np, "sort", unique_sort)
+  gmsh.model.add("np.unique")
+  seamsh.gmsh.mesh(square_with_island(), uniform(10e3))
+  mesh = current_mesh()
+  np.testing.assert_array_equal(mesh["x"], reference["x"])
+  np.testing.assert_array_equal(mesh["triangles"], reference["triangles"])

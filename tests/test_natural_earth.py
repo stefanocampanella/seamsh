@@ -17,6 +17,7 @@ import numpy as np
 import pytest
 from domains import NE_110M, current_mesh, inside_curves, n_components
 from osgeo import osr
+from quality import mesh_quality
 
 import seamsh.gmsh
 from seamsh.geometry import CurveType, Domain, coarsen_boundaries
@@ -134,3 +135,50 @@ def test_seeded_basins(model):
   mesh = current_mesh()
   assert n_components(mesh) == 4
   assert len(gmsh.model.getEntities(2)) == 4
+
+
+@pytest.fixture(scope="module")
+def ocean_domain():
+  domain = Domain(STEREOGRAPHIC)
+  domain.add_boundary_curves_shp(str(NE_110M), "featurecla", CurveType.BSPLINE)
+  return domain
+
+
+@pytest.mark.parametrize("level", [150e3, 300e3, 600e3])
+def test_levels_meet_the_quality_targets(ocean_domain, model, level):
+  """Each level of a hierarchy, its coastline coarsened at its own size (as moby-dick does), meets the quality
+  targets agreed for moby-dick's meshes (`quality.py`: worst gamma, share of poor triangles, smallest angle). A coarse
+  level meshed on a coastline coarsened for a finer one does not: the coast keeps details far smaller than the
+  triangles (1:10m, 400 km on a 10 km coastline: worst gamma 0.017)."""
+  coarse = coarsen_boundaries(ocean_domain, (0.0, 0.0), STEREOGRAPHIC, UniformOnEarth(level))
+  # The quality of the triangles on the Earth, as moby-dick measures it: in Earth-centred coordinates.
+  cartesian = osr.SpatialReference()
+  cartesian.ImportFromProj4("+proj=cart +ellps=WGS84 +units=m")
+  seamsh.gmsh.mesh(coarse, UniformOnEarth(level), output_srs=cartesian)
+  assert mesh_quality().failures(degree=False) == []
+
+
+def test_optimize_leaves_fewer_poor_triangles(ocean_domain, model):
+  """gmsh's Relocate2D, run by `mesh` by default, moves nodes (same nodes and triangles) and leaves fewer triangles
+  with gamma below 0.8 (300 km: 0.52 % -> 0.42 %; its effect on the single worst triangle goes either way)."""
+  coarse = coarsen_boundaries(ocean_domain, (0.0, 0.0), STEREOGRAPHIC, UniformOnEarth(300e3))
+  quality = {}
+  for optimize in (False, True):
+    gmsh.model.add(str(optimize))
+    seamsh.gmsh.mesh(coarse, UniformOnEarth(300e3), optimize=optimize)
+    quality[optimize] = mesh_quality()
+  assert quality[True].triangles == quality[False].triangles
+  assert quality[True].poor_share < quality[False].poor_share
+
+
+def test_a_lost_basin_is_reported(ocean_domain, model, caplog):
+  """A seeded sea that the coarsening loses (too small for the size: its edges are collapsed) is reported by a warning
+  naming its point; it used to vanish without a word. The Black Sea is kept at 200 km, lost at 300 km."""
+  black_sea = (34.0, 43.5)
+  seeds = [tuple(to_stereographic(90.0, 0.0)), tuple(to_stereographic(black_sea[1], black_sea[0]))]
+  for size, lost in ((200e3, False), (300e3, True)):
+    caplog.clear()
+    with caplog.at_level("WARNING", logger="seamsh.geometry"):
+      coarsen_boundaries(ocean_domain, seeds, STEREOGRAPHIC, UniformOnEarth(size))
+    assert ("not in the coarsened domain" in caplog.text) == lost
+    assert caplog.text.count("not in the coarsened domain") == int(lost)

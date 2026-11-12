@@ -652,4 +652,24 @@ def coarsen_boundaries(
       curve_type=CurveType.POLYLINE,
     )
     start = end + 1
+  _warn_about_lost_seeds(coarse, x0, seed_points)
   return coarse
+
+
+def _warn_about_lost_seeds(coarse: Domain, x0: np.ndarray, seed_points: np.ndarray) -> None:
+  """Logs a warning for each point of x0 that the coarsened domain does not hold. A basin only a few times the size
+  across can be thinned to nothing by the coarsening (its boundary edges, shorter than the size, are collapsed): it
+  is then missing from the domain, which used to happen without a word."""
+  lost = list(range(len(x0)))
+  if coarse._curves:
+    try:
+      coarse._build_topology()
+      lost = np.where(coarse._regions_of(seed_points[:, :2]) < 0)[0].tolist()
+    except ValueError:  # an invalid topology is reported when the domain is meshed
+      return
+  for i in lost:
+    logger.warning(
+      "Point %s of x0 is not in the coarsened domain: its basin is too small for the size, or narrower than it, "
+      "and was lost (give a smaller size there)",
+      tuple(np.round(x0[i], 6).tolist()),
+    )
